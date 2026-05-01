@@ -16,7 +16,7 @@ import type {
 import type { InfraInstance } from "../domain/instance-assembly.js";
 import {
   LABEL_TYPE, LABEL_OWNER, LABEL_TEMPLATE_REF, LABEL_AGENT_REF,
-  LABEL_INSTANCE_REF,
+  LABEL_INSTANCE_REF, LABEL_CREATED_BY,
   TYPE_AGENT, TYPE_INSTANCE, TYPE_SCHEDULE,
   SPEC_KEY, STATUS_KEY, LAST_ACTIVITY_KEY,
 } from "./labels.js";
@@ -103,6 +103,7 @@ export function parseInfraInstance(cm: k8s.V1ConfigMap, pod?: k8s.V1Pod): InfraI
 
 export function parseSchedule(cm: k8s.V1ConfigMap): Schedule {
   const spec = yaml.load(cm.data?.[SPEC_KEY] ?? "") as ScheduleSpec;
+  if (spec.createdBy !== "agent") spec.createdBy = "user";
   const statusYaml = cm.data?.[STATUS_KEY];
   let status: ScheduleStatus | undefined;
   if (statusYaml) {
@@ -165,16 +166,16 @@ export function buildScheduleConfigMap(
   spec: Record<string, unknown>,
   owner: string,
 ): k8s.V1ConfigMap {
+  const createdBy = (spec as { createdBy?: string }).createdBy === "agent" ? "agent" : "user";
+  const labels: Record<string, string> = {
+    [LABEL_TYPE]: TYPE_SCHEDULE,
+    [LABEL_INSTANCE_REF]: instanceId,
+    [LABEL_AGENT_REF]: agentRef,
+    [LABEL_OWNER]: owner,
+    [LABEL_CREATED_BY]: createdBy,
+  };
   return {
-    metadata: {
-      name: generateK8sName("sched"),
-      labels: {
-        [LABEL_TYPE]: TYPE_SCHEDULE,
-        [LABEL_INSTANCE_REF]: instanceId,
-        [LABEL_AGENT_REF]: agentRef,
-        [LABEL_OWNER]: owner,
-      },
-    },
+    metadata: { name: generateK8sName("sched"), labels },
     data: { [SPEC_KEY]: yaml.dump(spec) },
   };
 }

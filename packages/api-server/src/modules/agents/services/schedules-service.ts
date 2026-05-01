@@ -28,6 +28,7 @@ export function createSchedulesService(deps: {
         cron: input.cron,
         task: input.task,
         enabled: true,
+        createdBy: input.createdBy ?? "user",
       };
       if (input.sessionMode) spec.sessionMode = input.sessionMode;
       return deps.repo.create(input.instanceId, agentRef, spec, deps.owner);
@@ -48,6 +49,7 @@ export function createSchedulesService(deps: {
         timezone: input.timezone,
         task: input.task,
         enabled: true,
+        createdBy: "user",
       };
       if (input.quietHours && input.quietHours.length > 0) {
         spec.quietHours = input.quietHours;
