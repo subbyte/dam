@@ -40,6 +40,26 @@ import { createOnecliClient } from "./apps/api-server/onecli.js";
 import { startOnecliSyncSaga } from "./sagas/onecli-sync.js";
 import { startApiServerApp } from "./apps/api-server/app.js";
 import { startHarnessApiServerApp } from "./apps/harness-api-server/app.js";
+import { startExtAuthzGrpcApp } from "./apps/ext-authz/grpc.js";
+import {
+  composeApprovalsSystem,
+  createApprovalsCleanupHook,
+  listPendingApprovalAgentIds,
+} from "./modules/approvals/compose.js";
+import { createWrapperFrameSender } from "./modules/approvals/infrastructure/wrapper-frame-sender.js";
+import {
+  createEgressRuleMatchAdapter,
+  createEgressRulesCleanupHook,
+  createPresetSeederAdapter,
+  listEgressRuleAgentIds,
+} from "./modules/egress-rules/compose.js";
+import { createAgentArtifactsSweeper } from "./sagas/agent-artifacts-sweeper.js";
+import { createK8sClient as createAgentsK8sClient } from "./modules/agents/infrastructure/k8s.js";
+import { createPodIpResolver } from "./modules/agents/infrastructure/pod-ip-resolver.js";
+import { loadTrustedHosts } from "./bootstrap/trusted-hosts.js";
+import { loadAppConnectionEgressHosts } from "./bootstrap/app-connection-egress-hosts.js";
+import { createRedisBus } from "./core/redis-bus.js";
+import { podBaseUrl } from "./modules/agents/infrastructure/k8s.js";
 
 const config = loadConfig();
 
@@ -240,9 +260,88 @@ const podFilesPublisher = createPodFilesPublisher({
   registry: podFilesRegistry,
 });
 
+if (!config.redisUrl) throw new Error("REDIS_URL is required (Redis is a platform primitive — see ADR-036)");
+const redisBus = createRedisBus(config.redisUrl, { password: config.redisPassword ?? undefined });
+
+// Seed list for the `trusted` egress preset (ADR-035).
+// Read once at boot; the helm ConfigMap is the operator-editable source.
+const trustedHosts = loadTrustedHosts(config.trustedHostsPath);
+const presetSeeder = createPresetSeederAdapter(db, trustedHosts);
+// Provider → API hosts map used by `setAgentConnections` to seed
+// `connection:<id>` rules on grant. Operator-owned ConfigMap; missing
+// providers contribute zero hosts (grants stay rule-less for them).
+const appConnectionEgressHosts = loadAppConnectionEgressHosts(config.appConnectionEgressHostsPath);
+
+const wrapperFrameSender = createWrapperFrameSender({
+  resolveWrapperUrl: (instanceId) => `ws://${podBaseUrl(instanceId, config.namespace)}/api/acp`,
+});
+
+// System-level approvals composition — bound to the bus + cross-module
+// ports for instance identity (agents), rule matching (egress-rules), and
+// wrapper-frame delivery. Relay, gate, and sweeper are long-lived and
+// shared across all owners.
+const { relay: approvalsRelay, gate: extAuthzGate, sweeper: deliverySweeper } = composeApprovalsSystem({
+  db,
+  bus: redisBus,
+  identityResolver: {
+    resolve: async (instanceId) => {
+      const r = await instancesRepo.resolveIdentity(instanceId);
+      return r ? { ownerSub: r.owner, agentId: r.agentId } : null;
+    },
+  },
+  ruleMatcher: {
+    match: async (agentId, host, method, path) => {
+      const matched = await createEgressRuleMatchAdapter(db).match(agentId, host, method, path);
+      return matched ? { verdict: matched.verdict } : null;
+    },
+  },
+  wrapperFrameSender,
+  holdSeconds: config.approvalHoldSeconds,
+});
+deliverySweeper.start();
+
+// Per-agent cleanup hooks fired after a successful K8s delete. Each
+// module's adapter clears its own table; failures log + continue. The
+// orphan-sweeper saga catches anything missed (replica died mid-delete,
+// hook threw, etc.).
+const agentCleanupHooks = [
+  createEgressRulesCleanupHook(db),
+  createApprovalsCleanupHook(db),
+];
+
+// Cross-store orphan reaper. Lists live agent ConfigMaps, finds DB rows
+// keyed by an agent_id no longer in the live set, and runs each module's
+// cleanup. Runs on every replica — DELETEs are idempotent, the random
+// initial-delay jitter spreads scans out.
+const agentArtifactsSweeper = createAgentArtifactsSweeper({
+  k8s: createAgentsK8sClient(api, config.namespace),
+  sources: [
+    {
+      name: "egress-rules",
+      listAgentIds: () => listEgressRuleAgentIds(db),
+      cleanup: agentCleanupHooks[0]!,
+    },
+    {
+      name: "pending-approvals",
+      listAgentIds: () => listPendingApprovalAgentIds(db),
+      cleanup: agentCleanupHooks[1]!,
+    },
+  ],
+  intervalMs: 30 * 60_000,
+  batchSize: 200,
+});
+agentArtifactsSweeper.start();
+
 const { server: apiServer } = startApiServerApp({
   config, api, db, onecli, channelManager, channelSecretStore, identityLinkService,
   pendingSlackOAuthFlows, pendingTelegramOAuthFlows, podFilesPublisher, seedSources,
+  redisBus,
+  approvalsRelay,
+  wrapperFrameSender,
+  presetSeeder,
+  trustedHosts,
+  appConnectionEgressHosts,
+  agentCleanupHooks,
 });
 
 // Re-mints OAuth access tokens from stored refresh tokens before they expire
@@ -258,6 +357,30 @@ const { server: harnessApiServer } = startHarnessApiServerApp({
   seedSources,
 });
 
+// Source-IP-derived identity for the ext_authz handler. NetworkPolicy
+// (deploy/helm/humr/templates/apiserver/networkpolicy.yaml) blocks
+// non-agent pods at the kernel; this cache turns a verified peer IP into
+// the pod's instance label so a compromised agent bypassing its sidecar
+// still can't impersonate a sibling. Refresh cadence is generous —
+// agent pods come and go at human cadence, the on-miss refresh covers
+// the cold-start path.
+const podIpResolver = createPodIpResolver({
+  k8s: createAgentsK8sClient(api, config.namespace),
+  refreshIntervalMs: 10_000,
+});
+await podIpResolver.start();
+
+// Single gRPC ext_authz server serves both Envoy filters: HTTP filter on
+// TLS-terminated chains (L7 — sees method/path) and the network filter on
+// the catch-all chain (L4 — SNI only). Same Check RPC, same gate service;
+// the handler reads what's populated and falls back to wildcards otherwise.
+const { server: extAuthzGrpcServer } = await startExtAuthzGrpcApp({
+  port: config.extAuthzPort,
+  holdSeconds: config.approvalHoldSeconds,
+  gate: extAuthzGate,
+  podIpResolver,
+});
+
 listChannelsByOwner(db, "")().then((channelsByInstance) => {
   channelManager.bootstrap(channelsByInstance);
 }).catch(() => {});
@@ -271,8 +394,13 @@ async function shutdown() {
   onForeignReplySub.unsubscribe();
   onSlackTurnRelayedSub.unsubscribe();
   await oauthRefreshService.stop();
+  await deliverySweeper.stop();
+  await agentArtifactsSweeper.stop();
+  await podIpResolver.stop();
   await channelManager.stopAll();
+  await redisBus.close();
   await sql.end();
+  extAuthzGrpcServer.tryShutdown(() => {});
   harnessApiServer.close();
   apiServer.close();
   process.exit(0);

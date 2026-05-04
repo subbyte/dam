@@ -15,6 +15,20 @@ import type {
 import type { K8sSecretsPort } from "./../infrastructure/k8s-secrets-port.js";
 import { hostPatternFor } from "../domain/types.js";
 
+/**
+ * Sync port for connection-derived egress rules (ADR-035).
+ * The secrets module owns the per-agent grant list; this port reconciles
+ * `egress_rules` with that list whenever it changes. Optional dep — non-
+ * cluster contexts (tests) skip the side effect.
+ */
+export interface AgentConnectionRulesSync {
+  syncForAgent(input: {
+    agentId: string;
+    decidedBy: string;
+    grants: Map<string, { hosts: readonly string[] }>;
+  }): Promise<void>;
+}
+
 /** Once per process: Anthropic secret IDs we've already attempted to backfill. Prevents N writes per list() call. */
 const backfilled = new Set<string>();
 
@@ -62,6 +76,12 @@ async function mirrorToK8s(
 export function createSecretsService(deps: {
   port: OnecliSecretsPort;
   k8sPort?: K8sSecretsPort;
+  /** Reconciles egress_rules against the agent's currently-granted secrets
+   *  on every setAgentAccess call. */
+  connectionRules?: AgentConnectionRulesSync;
+  /** Owner sub for the calling user, stamped onto auto-inserted rules
+   *  (`decided_by`). Required when `connectionRules` is set. */
+  ownerSub?: string;
 }): SecretsService {
   return {
     async list() {
@@ -166,6 +186,27 @@ export function createSecretsService(deps: {
       // Always update the list — the selective list is stored even in "all" mode
       // so the user's selection is preserved across toggles.
       await deps.port.setAgentSecrets(agent.id, access.secretIds);
+
+      // ADR-035 §"Single rules table": auto-mirror the grant list into
+      // egress_rules with source=connection:<id>. In "all" mode there's no
+      // per-secret grant set — connection rules don't make sense, so we
+      // sync an empty map and the sync sweeps any leftover `connection:*`
+      // rows from a previous selective configuration. The user can still
+      // shape egress via presets or manual rules. Flipping back to
+      // selective re-inserts rules from the (preserved) secret list.
+      if (deps.connectionRules && deps.ownerSub) {
+        const grants = new Map<string, { hosts: readonly string[] }>();
+        if (access.mode === "selective") {
+          const allSecrets = await deps.port.listSecrets();
+          const granted = allSecrets.filter((s) => access.secretIds.includes(s.id));
+          for (const s of granted) grants.set(s.id, { hosts: [s.hostPattern] });
+        }
+        await deps.connectionRules.syncForAgent({
+          agentId,
+          decidedBy: deps.ownerSub,
+          grants,
+        });
+      }
     },
   };
 }

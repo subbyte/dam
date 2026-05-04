@@ -3,7 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { platform } from "../../../platform.js";
 import { queryClient } from "../../../query-client.js";
 import { trpc } from "../../../trpc.js";
-import type { EnvVar } from "../../../types.js";
+import type { EgressPreset, EnvVar } from "../../../types.js";
+import { egressRulesKeys } from "../../egress-rules/api/queries.js";
 import { instancesKeys } from "../../instances/api/queries.js";
 
 const invalidatesAgentsAndInstances = {
@@ -24,6 +25,7 @@ export interface CreateAgentInput {
   secretIds?: string[];
   appConnectionIds?: string[];
   experimentalCredentialInjector?: boolean;
+  egressPreset?: EgressPreset;
 }
 
 /**
@@ -34,8 +36,8 @@ export interface CreateAgentInput {
  */
 export function useCreateAgent() {
   return useMutation({
-    mutationFn: async ({ secretIds, appConnectionIds, experimentalCredentialInjector, ...input }: CreateAgentInput) => {
-      const agent = await platform.agents.create.mutate(input);
+    mutationFn: async ({ secretIds, appConnectionIds, experimentalCredentialInjector, egressPreset, ...input }: CreateAgentInput) => {
+      const agent = await platform.agents.create.mutate({ ...input, egressPreset });
       await platform.instances.create.mutate({
         name: input.name,
         agentId: agent.id,
@@ -92,7 +94,10 @@ export function useSetAgentAccess() {
   return useMutation({
     ...trpc.secrets.setAgentAccess.mutationOptions(),
     meta: {
-      invalidates: [trpc.secrets.getAgentAccess.queryKey()],
+      // Server-side `setAgentAccess` syncs `egress_rules` with the new
+      // grant list (insert/revoke connection:* rows), so refetch the
+      // editor's view alongside the access query.
+      invalidates: [trpc.secrets.getAgentAccess.queryKey(), egressRulesKeys.all],
       errorToast: "Failed to update credential access",
     },
   });
@@ -102,7 +107,10 @@ export function useSetAgentConnections() {
   return useMutation({
     ...trpc.connections.setAgentConnections.mutationOptions(),
     meta: {
-      invalidates: [trpc.connections.getAgentConnections.queryKey()],
+      // Server-side `setAgentConnections` syncs `connection:<id>` egress
+      // rules per granted provider's API hosts (ADR-035).
+      // Refetch the editor's view alongside the grants query.
+      invalidates: [trpc.connections.getAgentConnections.queryKey(), egressRulesKeys.all],
       errorToast: "Failed to update app connections",
     },
   });

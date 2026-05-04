@@ -1,4 +1,5 @@
 import type { EnvVar } from "../shared.js";
+import type { EgressPreset } from "../egress-rules/types.js";
 import type {
   Mount,
   Resources,
@@ -39,6 +40,13 @@ export interface CreateAgentInput {
   image?: string;
   description?: string;
   env?: EnvVar[];
+  /** Transient: bulk-seeds egress_rules at create time and is then
+   *  forgotten. The preset is not stored on the agent spec — its `source`
+   *  on the seeded rules is the truth. Defaults to `trusted` so a
+   *  brand-new agent can reach Anthropic, npm, PyPI, GitHub, etc. without
+   *  per-host inbox prompts. To switch presets later, call
+   *  `egressRules.applyPreset`. */
+  egressPreset?: EgressPreset;
 }
 
 export interface UpdateAgentInput {

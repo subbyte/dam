@@ -34,17 +34,24 @@ func BuildStatefulSet(name string, instance *types.InstanceSpec, agentSpec *type
 		proxyAddr = fmt.Sprintf("http://x:$(ONECLI_ACCESS_TOKEN)@%s:%d", cfg.GatewayFQDN(), cfg.GatewayPort)
 	}
 
-	// Base env. ONECLI_ACCESS_TOKEN is omitted on the experimental path —
-	// the sidecar reads credentials from disk; the agent has no token at all.
-	env := []corev1.EnvVar{}
-	if !instance.ExperimentalCredentialInjector {
-		tokenSecretName := AgentTokenSecretName(agentName)
-		env = append(env, corev1.EnvVar{Name: "ONECLI_ACCESS_TOKEN", ValueFrom: &corev1.EnvVarSource{
+	// ONECLI_ACCESS_TOKEN serves two purposes:
+	//   1. Egress proxy auth — only used on the OneCLI gateway path
+	//      (interpolated into HTTPS_PROXY). The experimental Envoy path
+	//      doesn't proxy through OneCLI, so the token is absent from the
+	//      proxy URL there.
+	//   2. Bearer for api-server → agent-runtime tRPC (files.tree, skills.*).
+	//      This usage is independent of the egress path: agent-runtime's
+	//      `protectedProcedure` always requires the token. Without it on the
+	//      experimental path, every protected tRPC call returns UNAUTHORIZED.
+	// Inject the env in both paths and let only the proxy URL diverge.
+	tokenSecretName := AgentTokenSecretName(agentName)
+	env := []corev1.EnvVar{
+		{Name: "ONECLI_ACCESS_TOKEN", ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: tokenSecretName},
 				Key:                  "access-token",
 			},
-		}})
+		}},
 	}
 	env = append(env,
 		corev1.EnvVar{Name: "HTTPS_PROXY", Value: proxyAddr},
@@ -285,6 +292,15 @@ func BuildStatefulSet(name string, instance *types.InstanceSpec, agentSpec *type
 			Value: ghAvail,
 		})
 		podAnnotations["humr.ai/gh-token-available"] = ghAvail
+
+		// Roll trigger (ADR-035 #10): hash of the Secret set
+		// driving the Envoy bootstrap. When the api-server adds an
+		// allow-only Secret to promote a host onto L7, the hash changes,
+		// the pod template diverges, and the StatefulSet rolls so Envoy
+		// picks up the new chain set + leaf cert. Without this, Secret
+		// list changes regenerate the bootstrap CM but don't restart the
+		// pod, and Envoy keeps serving the old config.
+		podAnnotations["humr.ai/envoy-secrets-rev"] = envoySecretsRev(credentialSecrets)
 	}
 
 	return &appsv1.StatefulSet{
@@ -348,6 +364,7 @@ func BuildNetworkPolicy(name string, cfg *config.Config, ownerCM *corev1.ConfigM
 	gwPort := intstr.FromInt32(int32(cfg.GatewayPort))
 	webPort := intstr.FromInt32(int32(cfg.WebPort))
 	harnessPort := intstr.FromInt32(int32(cfg.HarnessServerPort))
+	extAuthzPort := intstr.FromInt32(int32(cfg.ExtAuthzPort))
 	httpsPort := intstr.FromInt32(443)
 	httpPort := intstr.FromInt32(80)
 	dnsPort := intstr.FromInt32(53)
@@ -362,6 +379,24 @@ func BuildNetworkPolicy(name string, cfg *config.Config, ownerCM *corev1.ConfigM
 			Ports: []networkingv1.NetworkPolicyPort{
 				{Protocol: &tcp, Port: &httpsPort},
 				{Protocol: &tcp, Port: &httpPort},
+			},
+		})
+		// HITL ext_authz gate (ADR-035). Envoy in this same
+		// pod calls the API server's ext_authz endpoint on every credentialed
+		// request. `failure_mode_allow: false` means a blocked call here
+		// fails closed — i.e. agent gets 403 with no inbox prompt. So this
+		// rule is required wherever the credential-injector path is enabled.
+		egress = append(egress, networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{{
+				PodSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app.kubernetes.io/component": "apiserver"},
+				},
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"kubernetes.io/metadata.name": cfg.ReleaseNamespace},
+				},
+			}},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{Protocol: &tcp, Port: &extAuthzPort},
 			},
 		})
 	} else {
