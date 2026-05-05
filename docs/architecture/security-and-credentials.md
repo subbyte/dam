@@ -5,7 +5,7 @@ Last verified: 2026-05-04
 ## Motivated by
 
 - [ADR-005 — Gateway pattern for credentials](../adrs/005-credential-gateway.md) — the agent never sees a real upstream token; a gateway injects them on the wire
-- [ADR-015 — Multi-user authentication via Keycloak](../adrs/015-multi-user-auth.md) — Keycloak is the IdP; resources are owner-labelled (the OneCLI fork in §3 is superseded by ADR-033)
+- [ADR-015 — Multi-user authentication via Keycloak](../adrs/015-multi-user-auth.md) — Keycloak is the IdP; resources are owner-labelled
 - [ADR-018 — Slack integration](../adrs/018-slack-integration.md) — identity linking and the per-instance `allowedUsers` gate that decides who can drive a thread
 - [ADR-027 — Slack per-turn user impersonation](../adrs/027-slack-user-impersonation.md) — foreign repliers fork the instance into a per-turn Job whose Envoy sidecar mounts the replier's K8s credential Secrets
 - [ADR-033 — Envoy-based credential gateway](../adrs/033-envoy-credential-gateway.md) — Envoy sidecar mints per-instance leaf certs, MITMs egress, and injects credential headers
@@ -179,7 +179,8 @@ Each agent pod gets a NetworkPolicy that:
 - Permits gRPC egress to the api-server's ext_authz port (the HITL gate).
 - Permits egress to the api-server's harness port (MCP, triggers).
 - Permits DNS.
-- Allows ingress only on the agent's ACP port from cluster peers.
+- Admits ingress on the agent's ACP/tRPC port only from the api-server pod;
+  the kernel-level peer match is the auth boundary on that hop.
 
-OneCLI is no longer in the path; there is no cross-namespace credential
-gateway pod for the agent to reach.
+The credential gateway lives inside the agent pod (the Envoy sidecar);
+there is no cross-namespace gateway pod for the agent to reach.
