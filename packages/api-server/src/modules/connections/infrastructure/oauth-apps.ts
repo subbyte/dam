@@ -43,7 +43,30 @@ const GH_TOKEN_ENV_MAPPING: EnvMapping = {
   placeholder: DEFAULT_ENV_PLACEHOLDER,
 };
 
-export type OAuthAppId = "github" | "github-enterprise" | "spotify" | "generic";
+export type GoogleServiceId =
+  | "gmail"
+  | "google-admin"
+  | "google-analytics"
+  | "google-calendar"
+  | "google-classroom"
+  | "google-docs"
+  | "google-drive"
+  | "google-forms"
+  | "google-health"
+  | "google-meet"
+  | "google-photos"
+  | "google-search-console"
+  | "google-sheets"
+  | "google-slides"
+  | "google-tasks"
+  | "youtube";
+
+export type OAuthAppId =
+  | "github"
+  | "github-enterprise"
+  | "spotify"
+  | "generic"
+  | GoogleServiceId;
 
 export interface OAuthAppInputField {
   name: string;
@@ -53,6 +76,13 @@ export interface OAuthAppInputField {
   placeholder?: string;
   /** Short hint shown beneath the field. */
   helper?: string;
+  /**
+   * Empty value is acceptable. The form renders these collapsed behind an
+   * override toggle; the backend either merges in a stored value (e.g.
+   * family-credential prefill) or omits the field. Required fields default
+   * to `optional: false`.
+   */
+  optional?: boolean;
 }
 
 export type OAuthAppCardinality = "single" | "multiple";
@@ -93,6 +123,27 @@ export interface OAuthAppDescriptor {
    * `redirect_uri` sent during the OAuth flow.
    */
   localhostCallbackAlias?: string;
+  /**
+   * Credential family — descriptors with the same family share OAuth
+   * `clientId` / `clientSecret` per user. Once one app in a family is
+   * connected, the route layer prunes the credential inputs from siblings
+   * and reuses the stored creds during the OAuth flow. Lets the user
+   * register one Google Cloud OAuth client and connect Drive, Gmail,
+   * Calendar, etc. without re-entering credentials each time.
+   */
+  credentialFamily?: string;
+  /**
+   * API egress allowlist this descriptor opens when granted to an agent.
+   * Each rule is `{host, pathPattern?}`; multiple rules can target the
+   * same host as long as their path patterns differ (e.g. Drive at
+   * `www.googleapis.com/drive/*` and Calendar at `/calendar/*`).
+   *
+   * Static descriptors declare these here; dynamic-host apps (GHE,
+   * Generic) leave it undefined — the connections-service falls back to
+   * the connection's stored `hostPattern`/`pathPattern` metadata at
+   * grant time, since that's where the user-supplied host lives.
+   */
+  egressHosts?: readonly { host: string; pathPattern?: string }[];
 }
 
 export interface BuiltOAuthApp {
@@ -104,6 +155,225 @@ export interface BuiltOAuthApp {
 }
 
 const DEFAULT_GITHUB_SCOPES = ["repo", "read:user", "user:email"];
+
+// ---- Google services (gmail + 14 google-*) ----------------------------------
+//
+// Every Google service uses the same OAuth flow against
+// accounts.google.com / oauth2.googleapis.com. The Cloud Console issues one
+// `clientId` / `clientSecret` per app project, and the same credential
+// authorizes any combination of scopes — so we expose one descriptor per
+// service (granular agent grants, brand icons) but mark them all
+// `credentialFamily: "google"` so the user enters credentials only once.
+//
+// Default scopes are stripped down from onecli's permission lists to the
+// minimum a typical agent task needs. The OIDC baseline (`openid`, `email`,
+// `profile`) is added to every Google service so the api-server can populate
+// `metadata.username` from `userinfo` after exchange.
+
+const GOOGLE_BASELINE_SCOPES = ["openid", "email", "profile"];
+
+interface GoogleServiceDef {
+  displayName: string;
+  description: string;
+  /** API host the service routes to (used for Envoy SNI / cred injection). */
+  hostPattern: string;
+  /** Service-specific scopes; baseline OIDC scopes are added automatically. */
+  scopes: string[];
+  /**
+   * Egress allowlist rules opened when this service is granted to an
+   * agent. Mirrors onecli's host_rules table — each rule is the canonical
+   * Google API host plus, for services that share `www.googleapis.com`,
+   * a path-prefix discriminator. Drive's `/drive/` and `/upload/drive/`
+   * coexist with Calendar's `/calendar/` because the path is part of the
+   * rule key.
+   */
+  egressHosts: readonly { host: string; pathPattern?: string }[];
+}
+
+const GOOGLE_SERVICES: Record<GoogleServiceId, GoogleServiceDef> = {
+  gmail: {
+    displayName: "Gmail",
+    description: "Read, compose, and send emails via Gmail.",
+    hostPattern: "gmail.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.send",
+    ],
+    egressHosts: [
+      { host: "gmail.googleapis.com" },
+      { host: "www.googleapis.com", pathPattern: "/gmail/*" },
+    ],
+  },
+  "google-admin": {
+    displayName: "Google Admin",
+    description: "Manage users, groups, and devices in Google Workspace.",
+    hostPattern: "admin.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/admin.directory.user"],
+    egressHosts: [{ host: "admin.googleapis.com" }],
+  },
+  "google-analytics": {
+    displayName: "Google Analytics",
+    description: "Access report data and run analytics queries.",
+    hostPattern: "analyticsdata.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/analytics"],
+    egressHosts: [{ host: "analyticsdata.googleapis.com" }],
+  },
+  "google-calendar": {
+    displayName: "Google Calendar",
+    description: "Read, create, and manage calendar events.",
+    hostPattern: "calendar.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ],
+    egressHosts: [{ host: "www.googleapis.com", pathPattern: "/calendar/*" }],
+  },
+  "google-classroom": {
+    displayName: "Google Classroom",
+    description: "Manage classes, rosters, and invitations.",
+    hostPattern: "classroom.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/classroom.courses"],
+    egressHosts: [{ host: "classroom.googleapis.com" }],
+  },
+  "google-docs": {
+    displayName: "Google Docs",
+    description: "Read, create, and edit Google Docs documents.",
+    hostPattern: "docs.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    egressHosts: [{ host: "docs.googleapis.com" }],
+  },
+  "google-drive": {
+    displayName: "Google Drive",
+    description: "Read, create, and manage files and folders.",
+    hostPattern: "www.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    egressHosts: [
+      { host: "www.googleapis.com", pathPattern: "/drive/*" },
+      { host: "www.googleapis.com", pathPattern: "/upload/drive/*" },
+    ],
+  },
+  "google-forms": {
+    displayName: "Google Forms",
+    description: "Read, create, and edit forms and responses.",
+    hostPattern: "forms.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/forms.body"],
+    egressHosts: [{ host: "forms.googleapis.com" }],
+  },
+  "google-health": {
+    displayName: "Google Health",
+    description:
+      "Access activity, sleep, and health metrics from Fitbit and connected devices.",
+    hostPattern: "health.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+      "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
+      "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+    ],
+    egressHosts: [{ host: "health.googleapis.com" }],
+  },
+  "google-meet": {
+    displayName: "Google Meet",
+    description: "Create and manage meetings.",
+    hostPattern: "meet.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/meetings.space.created"],
+    egressHosts: [{ host: "meet.googleapis.com" }],
+  },
+  "google-photos": {
+    displayName: "Google Photos",
+    description: "Manage photos, videos, and albums.",
+    hostPattern: "photoslibrary.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/photoslibrary"],
+    egressHosts: [{ host: "photoslibrary.googleapis.com" }],
+  },
+  "google-search-console": {
+    displayName: "Google Search Console",
+    description: "View search traffic data and manage site presence.",
+    hostPattern: "searchconsole.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/webmasters"],
+    egressHosts: [{ host: "searchconsole.googleapis.com" }],
+  },
+  "google-sheets": {
+    displayName: "Google Sheets",
+    description: "Read, create, and edit spreadsheets.",
+    hostPattern: "sheets.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    egressHosts: [{ host: "sheets.googleapis.com" }],
+  },
+  "google-slides": {
+    displayName: "Google Slides",
+    description: "Read, create, and edit presentations.",
+    hostPattern: "slides.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    egressHosts: [{ host: "slides.googleapis.com" }],
+  },
+  "google-tasks": {
+    displayName: "Google Tasks",
+    description: "Manage task lists and tasks.",
+    hostPattern: "tasks.googleapis.com",
+    scopes: ["https://www.googleapis.com/auth/tasks"],
+    egressHosts: [{ host: "tasks.googleapis.com" }],
+  },
+  youtube: {
+    displayName: "YouTube",
+    description: "Manage playlists, videos, and channel content on YouTube.",
+    hostPattern: "youtube.googleapis.com",
+    scopes: [
+      "https://www.googleapis.com/auth/youtube.readonly",
+      "https://www.googleapis.com/auth/youtube",
+      "https://www.googleapis.com/auth/youtube.force-ssl",
+    ],
+    egressHosts: [
+      { host: "youtube.googleapis.com" },
+      { host: "www.googleapis.com", pathPattern: "/youtube/*" },
+    ],
+  },
+};
+
+const GOOGLE_REGISTRATION_URL = "https://console.cloud.google.com/apis/credentials";
+
+function googleService(id: GoogleServiceId): OAuthAppDescriptor {
+  const def = GOOGLE_SERVICES[id];
+  return {
+    id,
+    displayName: def.displayName,
+    description: def.description,
+    cardinality: "single",
+    connectionKey: id,
+    registrationUrl: GOOGLE_REGISTRATION_URL,
+    inputs: [
+      {
+        name: "clientId",
+        label: "Client ID",
+        placeholder: "123…apps.googleusercontent.com",
+        helper: "From the OAuth client you created in the Google Cloud Console.",
+      },
+      { name: "clientSecret", label: "Client secret", secret: true, placeholder: "GOCSPX-…" },
+    ],
+    credentialFamily: "google",
+    egressHosts: def.egressHosts,
+  };
+}
+
+function googleServiceDescriptors(): Record<GoogleServiceId, OAuthAppDescriptor> {
+  const ids = Object.keys(GOOGLE_SERVICES) as GoogleServiceId[];
+  return Object.fromEntries(ids.map((id) => [id, googleService(id)])) as Record<
+    GoogleServiceId,
+    OAuthAppDescriptor
+  >;
+}
 
 const DESCRIPTORS: Record<OAuthAppId, OAuthAppDescriptor> = {
   github: {
@@ -122,6 +392,7 @@ const DESCRIPTORS: Record<OAuthAppId, OAuthAppDescriptor> = {
       },
       { name: "clientSecret", label: "Client secret", secret: true },
     ],
+    egressHosts: [{ host: "api.github.com" }, { host: "github.com" }],
   },
   "github-enterprise": {
     id: "github-enterprise",
@@ -160,7 +431,9 @@ const DESCRIPTORS: Record<OAuthAppId, OAuthAppDescriptor> = {
     // since 2024) but accepts `127.0.0.1`. Reaching the api-server via the
     // catch-all ingress rule on the platform's local-dev cluster.
     localhostCallbackAlias: "127.0.0.1",
+    egressHosts: [{ host: "api.spotify.com" }],
   },
+  ...googleServiceDescriptors(),
   generic: {
     id: "generic",
     displayName: "Generic OAuth",
@@ -211,6 +484,11 @@ const githubInputSchema = z.object({
 });
 
 const spotifyInputSchema = z.object({
+  clientId: z.string().min(1, "Client ID is required"),
+  clientSecret: z.string().min(1, "Client secret is required"),
+});
+
+const googleInputSchema = z.object({
   clientId: z.string().min(1, "Client ID is required"),
   clientSecret: z.string().min(1, "Client secret is required"),
 });
@@ -275,6 +553,7 @@ const genericInputSchema = z.object({
 export type GithubInput = z.infer<typeof githubInputSchema>;
 export type GheInput = z.infer<typeof gheInputSchema>;
 export type SpotifyInput = z.infer<typeof spotifyInputSchema>;
+export type GoogleInput = z.infer<typeof googleInputSchema>;
 export type GenericInput = z.infer<typeof genericInputSchema>;
 
 /**
@@ -417,6 +696,32 @@ function buildSpotify(input: SpotifyInput): BuiltOAuthApp {
   };
 }
 
+function buildGoogleService(id: GoogleServiceId, input: GoogleInput): BuiltOAuthApp {
+  const def = GOOGLE_SERVICES[id];
+  return {
+    provider: {
+      id,
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
+      clientId: input.clientId,
+      clientSecret: input.clientSecret,
+      scopes: [...GOOGLE_BASELINE_SCOPES, ...def.scopes],
+      tokenEndpointAcceptJson: true,
+      // Google won't return a refresh_token without these. `prompt=consent`
+      // forces a re-prompt on every connect, which we want — sibling Google
+      // services connect with different scope sets, so the user must approve
+      // each scope expansion.
+      extraAuthParams: { access_type: "offline", prompt: "consent" },
+    },
+    flow: {
+      connectionKey: id,
+      hostPattern: def.hostPattern,
+      displayName: def.displayName,
+    },
+    connectionDisplayName: def.displayName,
+  };
+}
+
 function genericConnectionKey(hostPattern: string): string {
   // Connection key derived from hostPattern so reconnecting the same host
   // updates the existing K8s Secret in place. Different hosts → different
@@ -519,6 +824,9 @@ export function createOAuthAppRegistry(
       if (id === "github-enterprise") return buildGhe(gheInputSchema.parse(merged));
       if (id === "spotify") return buildSpotify(spotifyInputSchema.parse(merged));
       if (id === "generic") return buildGeneric(genericInputSchema.parse(merged));
+      if (id in GOOGLE_SERVICES) {
+        return buildGoogleService(id as GoogleServiceId, googleInputSchema.parse(merged));
+      }
       throw new Error(`unknown app id: ${id as string}`);
     },
   };
