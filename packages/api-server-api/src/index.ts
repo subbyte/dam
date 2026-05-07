@@ -81,11 +81,25 @@ export type {
   ConnectionsService,
 } from "./modules/connections/types.js";
 
-export { SessionType } from "./modules/sessions/types.js";
+export { SessionType, SessionMode } from "./modules/sessions/types.js";
 export type {
   SessionView,
   SessionsService as SessionsApiService,
 } from "./modules/sessions/types.js";
+
+export {
+  OP_INPUT,
+  OP_OUTPUT,
+  OP_RESIZE,
+  OP_EXIT,
+  encodeDataFrame,
+  encodeResize,
+  encodeExit,
+  decodeFrame,
+} from "./modules/terminal/protocol.js";
+export type {
+  TerminalFrame,
+} from "./modules/terminal/protocol.js";
 
 export {
   FileFragmentSchema,
