@@ -38,6 +38,11 @@ const (
 	envoyHostPatternAnn   = "agent-platform.ai/host-pattern"
 	envoyHeaderNameAnn    = "agent-platform.ai/injection-header-name"
 	envoyAuthModeAnn      = "agent-platform.ai/auth-mode"
+	// JSON-encoded list of {envName, placeholder} the api-server stamps on a
+	// user-typed credential Secret. Authoritative source for the env vars
+	// the agent harness needs as placeholders (ADR-040). Connection-type
+	// Secrets do not write this annotation today and fall through to the
+	// hardcoded mapping in `credentialEnvVars` below.
 	envoyEnvMappingsAnn   = "agent-platform.ai/env-mappings"
 	// Per-agent grant annotations stamped by the api-server on the
 	// instance ConfigMap. The controller reads them on every reconcile
@@ -109,22 +114,52 @@ func filterByGrants(secrets []corev1.Secret, ann map[string]string) []corev1.Sec
 	grantedSecretIds := splitGrant(ann[grantSecretIdsAnn])
 	grantedConnIds := splitGrant(ann[grantConnectionIdsAnn])
 
+	resolvedSecrets := map[string]bool{}
+	resolvedConns := map[string]bool{}
+
 	out := secrets[:0:0]
 	for _, s := range secrets {
 		switch s.Labels[envoySecretTypeLabel] {
 		case "connection":
 			connKey := s.Labels[envoyConnectionLabel]
 			if grantedConnIds[connKey] {
+				resolvedConns[connKey] = true
 				out = append(out, s)
 			}
 		default:
 			id := strings.TrimPrefix(s.Name, credentialSecretNamePrefix)
 			if grantedSecretIds[id] {
+				resolvedSecrets[id] = true
 				out = append(out, s)
 			}
 		}
 	}
+
+	// ADR-040: a granted-id that doesn't resolve to an owner-owned Secret
+	// silently contributes nothing (parse-tolerant fallback). Operators need
+	// a signal so the missing-env mode is diagnosable; emit one log line per
+	// reconcile naming the unresolved ids.
+	if unresolved := unresolvedKeys(grantedSecretIds, resolvedSecrets); len(unresolved) > 0 {
+		slog.Warn("granted-secret-ids contains ids with no matching owner Secret; entries contribute nothing",
+			"unresolvedIds", unresolved)
+	}
+	if unresolved := unresolvedKeys(grantedConnIds, resolvedConns); len(unresolved) > 0 {
+		slog.Warn("granted-connection-ids contains ids with no matching owner Secret; entries contribute nothing",
+			"unresolvedIds", unresolved)
+	}
+
 	return out
+}
+
+func unresolvedKeys(granted, resolved map[string]bool) []string {
+	var missing []string
+	for id := range granted {
+		if !resolved[id] {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func splitGrant(raw string) map[string]bool {
@@ -154,17 +189,22 @@ func listOwnerCredentialSecrets(ctx context.Context, client kubernetes.Interface
 	return items, nil
 }
 
-// credentialEnvVars synthesizes the env vars the agent harness needs to even
-// *attempt* an upstream call when the corresponding credential Secret exists.
-// Envoy's credential_injector overrides the header on the wire, but harnesses
-// like Claude Code refuse to dispatch when the canonical env is unset, so the
-// in-pod env has to carry a placeholder.
+type envMapping struct {
+	EnvName     string `json:"envName"`
+	Placeholder string `json:"placeholder"`
+}
+
+// credentialEnvVars synthesizes the env-var placeholders the agent harness
+// needs so SDKs will dispatch (Envoy overwrites the real header on the wire).
 //
-// The placeholder value is opaque to the upstream — Envoy overwrites it — so
-// any non-empty string works. We use a stable `dummy-placeholder` token so
-// logs stay grep-friendly.
+// Source of truth (ADR-040): the api-server stamps `envoyEnvMappingsAnn` on
+// each user-typed credential Secret. Secrets are pre-sorted by Name in
+// `listOwnerCredentialSecrets`, so the inner dedup gives "first-granted
+// wins" on env-name collisions. When the annotation is missing or malformed
+// the legacy switch fills in the canonical env per secret type — covers
+// connection-type Secrets (no annotation today) and hand-crafted fixtures.
 func credentialEnvVars(secrets []corev1.Secret) []corev1.EnvVar {
-	const sentinel = "dummy-placeholder"
+	const fallbackPlaceholder = "dummy-placeholder"
 	seen := map[string]struct{}{}
 	add := func(envs []corev1.EnvVar, name, value string) []corev1.EnvVar {
 		if name == "" {
@@ -174,21 +214,15 @@ func credentialEnvVars(secrets []corev1.Secret) []corev1.EnvVar {
 			return envs
 		}
 		if value == "" {
-			value = sentinel
+			value = fallbackPlaceholder
 		}
 		seen[name] = struct{}{}
 		return append(envs, corev1.EnvVar{Name: name, Value: value})
 	}
 	var envs []corev1.EnvVar
 	for _, s := range secrets {
-		// User-defined env mappings (api-server stamps this on every Secret).
-		// Any envName the user requested lands in the agent pod with its
-		// declared placeholder; Envoy overwrites the header on the wire.
 		if raw := s.Annotations[envoyEnvMappingsAnn]; raw != "" {
-			var mappings []struct {
-				EnvName     string `json:"envName"`
-				Placeholder string `json:"placeholder"`
-			}
+			var mappings []envMapping
 			if err := json.Unmarshal([]byte(raw), &mappings); err != nil {
 				// Bad annotation shouldn't crash the reconcile loop, but
 				// silently dropping it produces a pod missing env vars with
@@ -199,22 +233,20 @@ func credentialEnvVars(secrets []corev1.Secret) []corev1.EnvVar {
 				for _, m := range mappings {
 					envs = add(envs, m.EnvName, m.Placeholder)
 				}
+				continue
 			}
 		}
-		// Per-type fallbacks for legacy Secrets that predate the
-		// env-mappings annotation. Dedup keeps these no-ops when the
-		// annotation already contributed the same name.
 		switch s.Labels[envoySecretTypeLabel] {
 		case "anthropic":
 			if s.Annotations[envoyAuthModeAnn] == "api-key" {
-				envs = add(envs, "ANTHROPIC_API_KEY", sentinel)
+				envs = add(envs, "ANTHROPIC_API_KEY", fallbackPlaceholder)
 			} else {
-				envs = add(envs, "CLAUDE_CODE_OAUTH_TOKEN", sentinel)
+				envs = add(envs, "CLAUDE_CODE_OAUTH_TOKEN", fallbackPlaceholder)
 			}
 		case "connection":
 			host := s.Annotations[envoyHostPatternAnn]
 			if host == "github.com" || host == "api.github.com" {
-				envs = add(envs, "GH_TOKEN", sentinel)
+				envs = add(envs, "GH_TOKEN", fallbackPlaceholder)
 			}
 		}
 	}
