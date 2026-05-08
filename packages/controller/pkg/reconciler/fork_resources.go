@@ -236,6 +236,15 @@ func BuildForkAgentJob(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					// ADR-041 + ADR-027: fork agent runs as the per-fork SA
+					// (its own identity, NOT the parent's). The per-fork
+					// harness AuthorizationPolicy admits this SA only to
+					// `/api/instances/<parent>/mcp` — narrower than the
+					// parent's surface, so a compromised fork (i.e. a
+					// compromised replier) cannot reach pod-files SSE,
+					// `/internal/trigger`, or any other parent-scoped
+					// harness endpoint.
+					ServiceAccountName:            forkName,
 					RestartPolicy:                 corev1.RestartPolicyNever,
 					TerminationGracePeriodSeconds: &cfg.TerminationGracePeriod,
 					ImagePullSecrets:              pullSecrets,

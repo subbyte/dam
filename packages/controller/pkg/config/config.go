@@ -23,7 +23,6 @@ type Config struct {
 	AgentStorageSize          string // PVC size for persistent agent mounts (default: 10Gi)
 	IdleTimeout               time.Duration // Idle timeout before auto-hibernation (0 = disabled, default: 1h)
 	TerminationGracePeriod    int64         // Termination grace period in seconds for agent pods (default: 5)
-	APIServerHost        string // API server hostname (for NO_PROXY)
 	HarnessServerURL     string // Harness API server internal URL (separate port, agent-facing)
 	HarnessServerPort    int    // Harness API server port (for network policy egress rule)
 	EnvoyImage           string // Image for the Envoy credential-injector sidecar
@@ -35,16 +34,30 @@ type Config struct {
 	EnvoyMitmLeafDuration    time.Duration // 0 = cert-manager default
 	EnvoyMitmLeafRenewBefore time.Duration // 0 = cert-manager default
 	AgentHome                string        // HOME inside agent containers. Used for the HOME env var on the agent pod.
-	// ExtAuthzHost / ExtAuthzPort identify the API server's HITL ext_authz
-	// listener (gRPC). Both Envoy filters use the same endpoint:
+	// ExtAuthzPort identifies the API server's HITL ext_authz listener
+	// (gRPC). Both Envoy filters use the same endpoint:
 	//   - HTTP filter on TLS-terminated chains (L7 — sees method/path)
 	//   - Network filter on the catch-all chain (L4 — SNI only)
 	// (ADR-035).
-	ExtAuthzHost string
+	//
+	// ADR-041: the host is per-instance (one Service per instance, named
+	// `<release>-extauthz-<id>`, gated by AuthorizationPolicy to that
+	// instance's SA principal). The gateway pod's Envoy bootstrap is
+	// templated with its instance's per-instance ext-authz Service URL —
+	// computed by ExtAuthzHostFor; there is no shared ExtAuthzHost.
 	ExtAuthzPort int
 	// ExtAuthzHoldSeconds bounds how long the ext_authz handler holds a single
 	// call. Envoy's per-filter timeout must be at least this plus headroom.
 	ExtAuthzHoldSeconds int
+	// IstioTrustDomain is the SPIFFE trust domain configured for istiod
+	// (default cluster.local). Used to render the per-instance principal
+	// string `<td>/ns/<agent-ns>/sa/<id>` on AuthorizationPolicies.
+	IstioTrustDomain string
+	// IstioWaypointName is the name of the Gateway resource that fronts
+	// the api-server's harness Service. Used in the harness-side
+	// AuthorizationPolicy's targetRefs. Must match the Helm chart's
+	// `istio.waypointName`.
+	IstioWaypointName string
 }
 
 func LoadFromEnv() (*Config, error) {
@@ -65,7 +78,6 @@ func LoadFromEnv() (*Config, error) {
 		LeaseName:        envOrDefault("PLATFORM_LEASE_NAME", release+"-controller"),
 		PodName:          podName,
 	}
-	cfg.APIServerHost = os.Getenv("PLATFORM_API_SERVER_HOST")
 	cfg.HarnessServerURL = os.Getenv("PLATFORM_HARNESS_SERVER_URL")
 	cfg.HarnessServerPort = envOrDefaultInt("PLATFORM_HARNESS_SERVER_PORT", 4001)
 	cfg.AgentImagePullPolicy = envOrDefault("AGENT_IMAGE_PULL_POLICY", "IfNotPresent")
@@ -94,22 +106,53 @@ func LoadFromEnv() (*Config, error) {
 	cfg.EnvoyMitmCAIssuer = envOrDefault("ENVOY_MITM_CA_ISSUER", "platform-mitm-ca-issuer")
 	cfg.EnvoyMitmLeafDuration = envOrDefaultDuration("ENVOY_MITM_LEAF_DURATION", 0)
 	cfg.EnvoyMitmLeafRenewBefore = envOrDefaultDuration("ENVOY_MITM_LEAF_RENEW_BEFORE", 0)
-	// FQDN by default: agent pods live in a different namespace from the
-	// api-server Service, so a bare service name doesn't resolve in the
-	// agent's DNS scope. Helm sets this explicitly too — the FQDN default
-	// is the correctness floor for any harness that loads config without
-	// the chart's env wiring.
-	cfg.ExtAuthzHost = envOrDefault(
-		"EXT_AUTHZ_HOST",
-		fmt.Sprintf("%s-apiserver.%s.svc.cluster.local", release, cfg.ReleaseNamespace),
-	)
 	cfg.ExtAuthzPort = envOrDefaultInt("EXT_AUTHZ_PORT", 4002)
 	cfg.ExtAuthzHoldSeconds = envOrDefaultInt("EXT_AUTHZ_HOLD_SECONDS", 1800)
+	cfg.IstioTrustDomain = envOrDefault("PLATFORM_ISTIO_TRUST_DOMAIN", "cluster.local")
+	cfg.IstioWaypointName = envOrDefault("PLATFORM_ISTIO_WAYPOINT_NAME", "apiserver-waypoint")
 	return cfg, nil
 }
 
+// APIServerURL is the harness Service URL, used by agent-runtime to dial
+// MCP / pod-files / trigger endpoints. ADR-041: this points at the
+// `-apiserver-harness` Service which carries the istio.io/use-waypoint
+// label; in-mesh dials route through the waypoint where per-instance
+// AuthorizationPolicies enforce principal == URL `:id`.
 func (c *Config) APIServerURL() string {
-	return fmt.Sprintf("http://%s-apiserver.%s.svc.cluster.local:%d", c.ReleaseName, c.ReleaseNamespace, c.HarnessServerPort)
+	return fmt.Sprintf("http://%s-apiserver-harness.%s.svc.cluster.local:%d", c.ReleaseName, c.ReleaseNamespace, c.HarnessServerPort)
+}
+
+// ExtAuthzServiceName returns the name of the per-instance ext-authz
+// Service the controller renders for `instanceID`. The gateway pod's
+// Envoy bootstrap uses this name; the per-instance AuthorizationPolicy
+// also targets it.
+func (c *Config) ExtAuthzServiceName(instanceID string) string {
+	return fmt.Sprintf("%s-extauthz-%s", c.ReleaseName, instanceID)
+}
+
+// ExtAuthzHostFor returns the FQDN of the per-instance ext-authz Service
+// for `instanceID`. Used to template the gateway pod's Envoy bootstrap
+// (ADR-041). The Service is gated by an AuthorizationPolicy keyed on
+// the same SA principal, so a gateway pod can only successfully dial
+// the Service for its own instance.
+func (c *Config) ExtAuthzHostFor(instanceID string) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", c.ExtAuthzServiceName(instanceID), c.ReleaseNamespace)
+}
+
+// HarnessHost returns the bare hostname of the harness Service (no
+// scheme, no port). Used as the gateway pod Envoy bootstrap's
+// `:authority` match so harness traffic flows down a credential-injection-
+// free route rather than the credentialed external-host chains.
+func (c *Config) HarnessHost() string {
+	return fmt.Sprintf("%s-apiserver-harness.%s.svc.cluster.local", c.ReleaseName, c.ReleaseNamespace)
+}
+
+// PrincipalFor returns the SPIFFE principal string for `instanceID`,
+// matching how istiod stamps workload certs (`<td>/ns/<ns>/sa/<sa>`).
+// Used to render the `from.source.principals` field on the per-instance
+// AuthorizationPolicies.
+func (c *Config) PrincipalFor(instanceID string) string {
+	return fmt.Sprintf("%s/ns/%s/sa/%s", c.IstioTrustDomain, c.Namespace, instanceID)
 }
 
 func envOrDefault(key, def string) string {
