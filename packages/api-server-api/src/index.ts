@@ -54,6 +54,9 @@ export type {
 
 export type {
   SecretType,
+  ProviderPreset,
+  ProviderPresetMode,
+  ProviderPresetType,
   SecretView,
   CreateSecretInput,
   UpdateSecretInput,
@@ -61,14 +64,19 @@ export type {
   SecretsService,
   EnvMapping,
   InjectionConfig,
+  IbmLitellmModelPins,
 } from "./modules/secrets/types.js";
 export {
   DEFAULT_ENV_PLACEHOLDER,
   DEFAULT_INJECTION_CONFIG,
   ENV_NAME_RE,
   isValidEnvName,
-  ANTHROPIC_OAUTH_ENV_MAPPING,
-  ANTHROPIC_API_KEY_ENV_MAPPING,
+  PROVIDERS,
+  PROVIDER_PRESET_TYPES,
+  isProviderPresetType,
+  IBM_LITELLM_DEFAULT_MODEL_PINS,
+  ibmLitellmEnvMappings,
+  ibmLitellmPinsFromEnvMappings,
 } from "./modules/secrets/types.js";
 export { updateSecretInputSchema } from "./modules/secrets/schemas.js";
 

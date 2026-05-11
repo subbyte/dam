@@ -1,27 +1,31 @@
 import { useState } from "react";
 
-import { PROVIDERS, type SecretView } from "../../../../types.js";
+import {
+  type IbmLitellmModelPins,
+  ibmLitellmPinsFromEnvMappings,
+  PROVIDERS,
+  type SecretView,
+} from "../../../../types.js";
 import { ProviderConnectedShell } from "../shared/provider-connected-shell.js";
-import { AnthropicForm } from "./form.js";
-import { detectMode, type Mode, MODES } from "./modes.js";
+import { IbmLitellmForm } from "./form.js";
 
-export function AnthropicConnected({
+export function IbmLitellmConnected({
   secret,
   onRemove,
   onSave,
 }: {
   secret: SecretView;
   onRemove: () => Promise<void>;
-  onSave: (input: { mode: Mode; value: string }) => Promise<void>;
+  onSave: (input: { value: string; pins: IbmLitellmModelPins }) => Promise<void>;
 }) {
-  const currentMode = detectMode(secret.envMappings?.[0]?.envName);
   const [editing, setEditing] = useState(false);
+  const currentPins = ibmLitellmPinsFromEnvMappings(secret.envMappings);
 
   if (editing) {
     return (
-      <AnthropicForm
+      <IbmLitellmForm
         variant="edit"
-        initialMode={currentMode}
+        initialPins={currentPins}
         onCancel={() => setEditing(false)}
         onSave={async (input) => {
           await onSave(input);
@@ -33,8 +37,12 @@ export function AnthropicConnected({
 
   return (
     <ProviderConnectedShell
-      title={PROVIDERS.anthropic.displayName}
-      subtitle={`Set up with ${MODES[currentMode].label}`}
+      title={PROVIDERS["ibm-litellm"].displayName}
+      subtitle={
+        <>
+          Default: <span className="font-mono">{currentPins.default}</span>
+        </>
+      }
       onEdit={() => setEditing(true)}
       onRemove={onRemove}
     />
