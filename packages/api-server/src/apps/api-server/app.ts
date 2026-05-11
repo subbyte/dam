@@ -107,6 +107,14 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
   const app = new Hono<{ Variables: { user: UserIdentity } }>();
 
   app.get("/api/health", (c) => c.json({ status: "ok" }));
+  app.get("/api/version", (c) =>
+    c.json({
+      serverVersion: config.serverVersion,
+      ...(config.minClientCliVersion !== undefined && {
+        minClientVersion: config.minClientCliVersion,
+      }),
+    }),
+  );
   app.get("/api/auth/config", (c) =>
     c.json({
       issuer: `${config.keycloakExternalUrl}/realms/${config.keycloakRealm}`,

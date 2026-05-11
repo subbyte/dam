@@ -1,6 +1,11 @@
 import { z } from "zod/v4";
+import pkg from "../package.json" with { type: "json" };
 
 const configSchema = z.object({
+  /** Build-time semver from this package's package.json — not env-driven.
+   *  Bundled into `dist/index.js` by tsup at build time; in dev (tsx) it
+   *  resolves at module import. Surfaced on `GET /api/version`. */
+  serverVersion: z.string().min(1),
   namespace: z.string().default("platform-agents"),
   /** Helm release name. ADR-041: required at startup — used to parse
    *  instance ID out of the per-instance ext-authz Service hostname
@@ -53,6 +58,10 @@ const configSchema = z.object({
   /** Default hold window for ext_authz HITL (seconds). Helm-configurable;
    *  matches `pending_approvals.expires_at` and the synchronous-hold deadline. */
   approvalHoldSeconds: z.coerce.number().int().positive().default(1800),
+  /** Minimum CLI version this server accepts. Optional — when unset, no
+   *  floor is advertised and every CLI is accepted (a soft-warn fires on
+   *  the CLI side when the local CLI is behind the current server). */
+  minClientCliVersion: z.string().optional(),
   /** Path to a newline-delimited file of hosts seeded by the `trusted` egress
    *  preset (ADR-035). Mounted from a Helm-managed ConfigMap.
    *  Empty/missing file → preset is empty (still selectable, just seeds nothing). */
@@ -84,6 +93,7 @@ export type Config = z.infer<typeof configSchema>;
 
 export function loadConfig(): Config {
   return configSchema.parse({
+    serverVersion: pkg.version,
     namespace: process.env.NAMESPACE,
     releaseName: process.env.PLATFORM_RELEASE_NAME,
     port: process.env.PORT,
@@ -114,6 +124,7 @@ export function loadConfig(): Config {
     redisUrl: process.env.REDIS_URL,
     redisPassword: process.env.REDIS_PASSWORD,
     approvalHoldSeconds: process.env.APPROVAL_HOLD_SECONDS,
+    minClientCliVersion: process.env.MIN_CLIENT_CLI_VERSION,
     trustedHostsPath: process.env.TRUSTED_HOSTS_PATH,
     brand: {
       name: process.env.BRAND_NAME,
