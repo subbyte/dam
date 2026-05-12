@@ -117,6 +117,7 @@ var bootstrapTestCfg = &config.Config{
 	Namespace:           "agents",
 	ReleaseName:         "platform",
 	ReleaseNamespace:    "platform",
+	HarnessServerPort:   4001,
 	EnvoyPort:           10000,
 	ExtAuthzPort:        50051,
 	ExtAuthzHoldSeconds: 30,
