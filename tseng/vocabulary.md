@@ -102,6 +102,16 @@ Pod-side operational view of skills. Distinct from the api-server's Skills conte
 | Secret Assignment | The linkage between a Secret and an Agent that makes the secret available to that agent's egress; stored as the `agent-platform.ai/secret-mode` + `agent-platform.ai/granted-secret-ids` annotations on the agent's instance ConfigMap |
 | Provider | The external service a secret authenticates against (e.g., Anthropic); for typed secrets the provider determines default routing rules |
 
+## Import (bounded context)
+
+Pod-side operation that lands a user-supplied snapshot of local project context into the agent's `<homeDir>/work`. Owned by agent-runtime; orchestrated by api-server. See [ADR-DRAFT-file-import](../docs/adrs/DRAFT-file-import.md).
+
+| Term | Definition |
+|------|-----------|
+| Bundle | A `tar` (gzip optional) carrying the files to land; the on-the-wire contract between clients (UI, future CLI) and agent-runtime |
+| Staging Dir | A `.import-staging-*` directory on the PVC into which the bundle is extracted before finalize; reclaimed by the boot sweeper if its mtime exceeds 1h |
+| Finalize | The per-top-level `rm`+`rename` loop that lands the staging tree into `<homeDir>/work`. Top-level entries are atomic units — a top-level folder in the bundle replaces the whole same-named folder in `work/`. Destination entries whose names don't appear in the bundle are left untouched |
+
 ## Platform CLI (bounded context)
 
 | Term | Definition |

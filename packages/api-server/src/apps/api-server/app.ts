@@ -1,4 +1,6 @@
-import { Hono } from "hono";
+import { request as httpRequest } from "node:http";
+import { Readable, Transform } from "node:stream";
+import { Hono, type Context } from "hono";
 import { serve } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "api-server-api/router";
@@ -240,6 +242,136 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
     }
   });
 
+  // File import — bundle is a tar (or tar.gz) inside multipart/form-data;
+  // we wake the pod via the reachability primitive and stream the body
+  // straight to agent-runtime, which lands it under `<homeDir>/work`
+  // with top-level replace semantics. See docs/adrs/DRAFT-file-import.md.
+  //
+  // The proxy uses node:http directly (NOT undici fetch). undici buffers
+  // arbitrary-sized request bodies in memory even with `duplex: "half"`,
+  // which OOMs the api-server pod on multi-GB uploads. node:http with a
+  // raw stream pipe respects backpressure end-to-end so memory stays
+  // flat regardless of body size.
+  const PROXY_RESPONSE_HEADER_ALLOWLIST = new Set(["content-type", "content-length"]);
+  // RFC 7230 §6.1 hop-by-hop headers + auth — never forwarded upstream.
+  // `transfer-encoding: chunked` alongside `content-length` from a buggy
+  // or hostile client is a request-smuggling shape; strip both `te` and
+  // `transfer-encoding` so the upstream sees only a single consistent
+  // framing signal.
+  const PROXY_HOP_BY_HOP_HEADERS = new Set([
+    "host", "authorization",
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailer", "transfer-encoding", "upgrade", "expect",
+  ]);
+  type ImportCtx = Context<{ Variables: { user: UserIdentity } }>;
+  async function proxyImport(c: ImportCtx) {
+    const user = c.get("user");
+    const instanceId = c.req.param("id")!;
+    if (!await verifyOwner(instanceId, user.sub)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    // Hard byte ceiling at the proxy boundary. Requires Content-Length so
+    // a chunked-encoding client can't slip past the cap; we additionally
+    // enforce the cap with a streaming byte counter below, so a client
+    // lying with `Content-Length: 1` can't trickle bytes past us.
+    const lengthHeader = c.req.header("content-length");
+    if (!lengthHeader) {
+      return c.json({ error: "Content-Length required for import upload" }, 411);
+    }
+    const length = Number.parseInt(lengthHeader, 10);
+    if (!Number.isFinite(length) || length < 0) {
+      return c.json({ error: "invalid Content-Length" }, 400);
+    }
+    if (length > config.maxImportBundleBytes) {
+      return c.json({ error: `bundle exceeds maximum size of ${config.maxImportBundleBytes} bytes` }, 413);
+    }
+    try {
+      await instancesRepo.ensureReady(instanceId);
+    } catch (err) {
+      process.stderr.write(`[import-proxy] ensureReady failed for ${instanceId}: ${(err as Error).message}\n`);
+      return c.json({ error: "instance unreachable" }, 502);
+    }
+    const upstreamUrl = new URL(`http://${podBaseUrl(instanceId, config.namespace)}/api/import`);
+    const outHeaders: Record<string, string> = {};
+    c.req.raw.headers.forEach((v, k) => {
+      if (PROXY_HOP_BY_HOP_HEADERS.has(k.toLowerCase())) return;
+      outHeaders[k] = v;
+    });
+
+    return new Promise<Response>((resolve) => {
+      // Single-shot resolve guard. Without this, both the upstream
+      // response handler and the error/close handlers can race —
+      // resulting in either a double-resolve (no-op in practice but
+      // confusing) or, more importantly, a Promise that never resolves
+      // when the *client* aborts before any upstream event fires
+      // (Node may emit `close` without `error` on upstreamReq, which
+      // would otherwise dangle).
+      let resolved = false;
+      const resolveOnce = (resp: Response) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(resp);
+      };
+      const upstreamReq = httpRequest({
+        protocol: upstreamUrl.protocol,
+        hostname: upstreamUrl.hostname,
+        port: upstreamUrl.port,
+        path: upstreamUrl.pathname + upstreamUrl.search,
+        method: "POST",
+        headers: outHeaders,
+      }, (upstreamRes) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(upstreamRes.headers)) {
+          if (value === undefined) continue;
+          if (!PROXY_RESPONSE_HEADER_ALLOWLIST.has(name.toLowerCase())) continue;
+          responseHeaders.set(name, Array.isArray(value) ? value.join(", ") : value);
+        }
+        // toWeb gives a Web ReadableStream backed by the IncomingMessage —
+        // Hono streams this back to the client without buffering.
+        const body = Readable.toWeb(upstreamRes) as ReadableStream<Uint8Array>;
+        resolveOnce(new Response(body, { status: upstreamRes.statusCode ?? 502, headers: responseHeaders }));
+      });
+      upstreamReq.on("error", () => {
+        resolveOnce(c.json({ error: "instance unreachable" }, 502));
+      });
+      upstreamReq.on("close", () => {
+        // Backstop: if the upstream socket closed without ever emitting
+        // either `response` or `error` (Node sometimes does this on
+        // mid-request aborts), the Promise would otherwise hang.
+        resolveOnce(c.json({ error: "instance closed connection" }, 502));
+      });
+
+      // Pipe incoming request body straight into the upstream socket.
+      // Wrap with a Transform that counts bytes when the cap is on, so
+      // even a lying Content-Length client can't trickle past the limit.
+      const incomingBody = c.req.raw.body;
+      if (!incomingBody) {
+        upstreamReq.end();
+        return;
+      }
+      const source = Readable.fromWeb(incomingBody as unknown as Parameters<typeof Readable.fromWeb>[0]);
+      let seen = 0;
+      const cap = config.maxImportBundleBytes;
+      const counter = new Transform({
+        transform(chunk: Buffer, _enc, cb) {
+          seen += chunk.length;
+          if (seen > cap) {
+            cb(new Error(`bundle exceeds cap ${cap}B`));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
+      counter.on("error", () => {
+        try { upstreamReq.destroy(); } catch {}
+        resolveOnce(c.json({ error: `bundle exceeds maximum size of ${cap} bytes` }, 413));
+      });
+      counter.pipe(upstreamReq);
+      source.on("error", () => { try { upstreamReq.destroy(); } catch {} }).pipe(counter);
+    });
+  }
+  app.post("/api/instances/:id/import", (c) => proxyImport(c));
+
   app.all("/api/trpc/*", (c) => {
     const user = c.get("user");
 
@@ -326,6 +458,31 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
     process.stderr.write(`api-server listening on http://localhost:${config.port}\n`);
   });
+  // Node defaults `requestTimeout` to 5 minutes — that hard-caps the
+  // file-import proxy roundtrip, because we hold the request open until
+  // the agent-runtime finishes extracting + finalizing the bundle, and
+  // a multi-GB tar can take well over 5 minutes end-to-end.
+  // `server.requestTimeout` is an absolute timer set at request start
+  // (not socket-idle), so there's no public Node API to scope it
+  // per-handler; disable it server-wide instead.
+  //
+  // What's lost: the body-read timeout on every other route. What still
+  // protects them:
+  //   - `headersTimeout = 60s` bounds the headers phase on every route.
+  //   - tRPC and other non-import routes have hard body caps, so a slow
+  //     body ties up a TCP connection but can't grow memory.
+  //   - This pod sits behind Traefik, which has its own ingress timeouts.
+  // The agent-runtime applies its own inactivity (30s) + wall-clock
+  // (30min) deadlines on the import path, so stuck imports still abort.
+  //
+  // @hono/node-server's ServerType is the union of http/https/http2
+  // server types; cast to access the timeout fields directly.
+  const nodeServer = server as unknown as {
+    requestTimeout: number;
+    headersTimeout: number;
+  };
+  nodeServer.requestTimeout = 0;
+  nodeServer.headersTimeout = 60_000;
 
   server.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url!, `http://${req.headers.host}`);
