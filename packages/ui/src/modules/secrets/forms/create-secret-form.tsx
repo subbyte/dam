@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { QUERY_PARAM_RE } from "api-server-api";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -26,6 +27,13 @@ const createSecretSchema = z.object({
   pathPattern: z.string().trim(),
   headerName: z.string().trim(),
   valueFormat: z.string().trim(),
+  queryParamName: z
+    .string()
+    .trim()
+    .refine(
+      (v) => v.length === 0 || QUERY_PARAM_RE.test(v),
+      "Use only A-Z a-z 0-9 . _ ~ -",
+    ),
   envMappings: z
     .array(envMappingSchema)
     .refine(allEnvMappingsValid, "All mappings need an env name and a placeholder"),
@@ -56,6 +64,7 @@ export function CreateSecretForm({ onCancel, onCreated }: Props) {
       pathPattern: "",
       headerName: "",
       valueFormat: "",
+      queryParamName: "",
       envMappings: [],
     },
   });
@@ -68,6 +77,7 @@ export function CreateSecretForm({ onCancel, onCreated }: Props) {
     const pathPattern = values.pathPattern.trim();
     const headerName = values.headerName.trim();
     const valueFormat = values.valueFormat.trim();
+    const queryParamName = values.queryParamName.trim();
     const mappings = sanitizeEnvMappings(values.envMappings);
     const sizeCheck = validateEnvMappingsSize(mappings);
     if (!sizeCheck.ok) {
@@ -78,7 +88,8 @@ export function CreateSecretForm({ onCancel, onCreated }: Props) {
       return;
     }
     clearErrors("envMappings");
-    const hasInjectionInput = headerName.length > 0 || valueFormat.length > 0;
+    const hasInjectionInput =
+      headerName.length > 0 || valueFormat.length > 0 || queryParamName.length > 0;
     createSecret.mutate(
       {
         type: "generic",
@@ -90,6 +101,7 @@ export function CreateSecretForm({ onCancel, onCreated }: Props) {
           injectionConfig: {
             headerName: headerName || DEFAULT_INJECTION_CONFIG.headerName,
             ...(valueFormat.length > 0 && { valueFormat }),
+            ...(queryParamName.length > 0 && { queryParamName }),
           },
         }),
         ...(mappings.length > 0 && { envMappings: mappings }),
@@ -200,6 +212,34 @@ export function CreateSecretForm({ onCancel, onCreated }: Props) {
               className={MONO_INPUT_CLASS}
               placeholder={DEFAULT_INJECTION_CONFIG.valueFormat}
               {...register("valueFormat")}
+            />
+          </FormField>
+
+          <FormField
+            label="URL Query Parameter (optional)"
+            hint={
+              <>
+                For APIs that read the credential from the URL (e.g.{" "}
+                <span className="font-mono">?key=&lt;value&gt;</span>). When set,
+                the bare value is moved into this query parameter and the
+                header is stripped before the request leaves the sidecar — so
+                <span className="font-mono"> Value Format</span> doesn't apply
+                here. Need <em>both</em> a header and a URL injection on the
+                same endpoint? Create two Secrets with the same host pattern —
+                one header-only, one with this field set.{" "}
+                <strong className="text-warning">
+                  Credentials in query strings are routinely logged by web
+                  servers, CDNs, and load balancers — prefer header injection
+                  unless the upstream API requires this.
+                </strong>
+              </>
+            }
+            error={errors.queryParamName?.message}
+          >
+            <input
+              className={MONO_INPUT_CLASS}
+              placeholder="e.g. key"
+              {...register("queryParamName")}
             />
           </FormField>
 
