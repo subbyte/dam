@@ -13,17 +13,32 @@ import (
 	"github.com/kagenti/platform/packages/controller/pkg/types"
 )
 
+// testConfig mirrors what the Helm chart writes into AGENT_BASE and
+// AGENT_TEMPLATE_DEFAULTS (see values.yaml `controller.agent`). The
+// controller has no Go-side defaults for these — the chart is the sole
+// source of truth — so tests must set them explicitly to match production.
 var testConfig = &config.Config{
-	Namespace:          "test-agents",
-	ReleaseNamespace:   "default",
-	ReleaseName:        "platform",
-	HarnessServerPort:  4001,
-	ExtAuthzPort:       4002,
-	AgentHome:          "/home/agent",
-	EnvoyImage:         "envoyproxy/envoy:distroless-v1.37.2",
-	EnvoyPort:          10000,
-	IstioTrustDomain:   "cluster.local",
-	IstioWaypointName:  "apiserver-waypoint",
+	Namespace:         "test-agents",
+	ReleaseNamespace:  "default",
+	ReleaseName:       "platform",
+	HarnessServerPort: 4001,
+	ExtAuthzPort:      4002,
+	EnvoyImage:        "envoyproxy/envoy:distroless-v1.37.2",
+	EnvoyPort:         10000,
+	IstioTrustDomain:  "cluster.local",
+	IstioWaypointName: "apiserver-waypoint",
+	AgentBase: config.AgentBase{
+		AccessMode:             "ReadWriteMany",
+		TerminationGracePeriod: 5,
+		ContainerSecurityContext: &corev1.SecurityContext{
+			Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		},
+	},
+	AgentTemplateDefaults: config.AgentTemplateDefaults{
+		AgentHome:       "/home/agent",
+		ImagePullPolicy: "IfNotPresent",
+		StorageSize:     "10Gi",
+	},
 	AgentProbesEnabled: true,
 }
 
@@ -38,10 +53,6 @@ var testAgent = &types.AgentSpec{
 	Resources: types.ResourceSpec{
 		Requests: map[string]string{"cpu": "250m", "memory": "512Mi"},
 		Limits:   map[string]string{"cpu": "1", "memory": "2Gi"},
-	},
-	SecurityContext: &types.SecurityContext{
-		RunAsNonRoot:           boolPtr(true),
-		ReadOnlyRootFilesystem: boolPtr(false),
 	},
 }
 
@@ -119,7 +130,10 @@ func TestBuildAgentStatefulSet_Running(t *testing.T) {
 	assert.Equal(t, resource.MustParse("250m"), *c.Resources.Requests.Cpu())
 	assert.Equal(t, resource.MustParse("2Gi"), *c.Resources.Limits.Memory())
 
-	assert.True(t, *ss.Spec.Template.Spec.SecurityContext.RunAsNonRoot)
+	// Security context is chart-only — applied from AgentBase.ContainerSecurityContext.
+	require.NotNil(t, c.SecurityContext)
+	require.NotNil(t, c.SecurityContext.Capabilities)
+	assert.Equal(t, []corev1.Capability{"ALL"}, c.SecurityContext.Capabilities.Drop)
 }
 
 func TestBuildAgentStatefulSet_ProbesDisabled(t *testing.T) {
@@ -166,7 +180,7 @@ func TestBuildAgentStatefulSet_Volumes(t *testing.T) {
 	pvc := ss.Spec.VolumeClaimTemplates[0]
 	assert.Equal(t, "home-agent", pvc.Name)
 	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}, pvc.Spec.AccessModes)
-	assert.Nil(t, pvc.Spec.StorageClassName, "unset AgentStorageClass → PVC gets cluster-default class")
+	assert.Nil(t, pvc.Spec.StorageClassName, "unset StorageClass → PVC gets cluster-default class")
 
 	volMap := make(map[string]corev1.Volume)
 	for _, v := range ss.Spec.Template.Spec.Volumes {
@@ -210,7 +224,7 @@ func TestBuildAgentStatefulSet_PVCSize(t *testing.T) {
 
 func TestBuildAgentStatefulSet_AgentStorageClass(t *testing.T) {
 	cfg := *testConfig
-	cfg.AgentStorageClass = "platform-rwx"
+	cfg.AgentBase.StorageClass = "platform-rwx"
 	instance := &types.InstanceSpec{DesiredState: "running"}
 	ss := BuildAgentStatefulSet("my-instance", instance, testAgent, &cfg, testOwnerCM, nil)
 

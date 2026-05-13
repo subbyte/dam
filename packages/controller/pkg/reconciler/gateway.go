@@ -13,6 +13,17 @@ import (
 // pod the paired agent can reach for TCP 80/443. Credential Secrets, the
 // leaf TLS Secret, and the Envoy bootstrap ConfigMap mount here only —
 // the agent pod has no path to Secret material.
+//
+// Gateway pods are platform-managed: they do NOT inherit operator-facing
+// agent config (controller.agent.*). Scheduling, metadata, and lifecycle
+// are controller-internal — same category as `envoyImage`/`envoyPort`,
+// which are platform-managed Envoy bootstrap concerns. The pair is paired
+// at the Service-DNS level, so co-scheduling agent and gateway on the same
+// node isn't a requirement.
+
+// gatewayTerminationGracePeriod is Envoy's drain window. Hardcoded — Envoy's
+// default drain is ~5s and there's nothing else in the pod that needs longer.
+const gatewayTerminationGracePeriod int64 = 5
 
 // GatewayName returns the per-pair gateway pod / Service name.
 func GatewayName(pairKey string) string {
@@ -42,6 +53,7 @@ func BuildGatewayStatefulSet(instanceName string, hibernated bool, cfg *config.C
 	containers := []corev1.Container{envoyContainer(cfg, credentialSecrets)}
 
 	falseVal := false
+	gracePeriod := gatewayTerminationGracePeriod
 
 	annotations := map[string]string{
 		// Roll trigger (ADR-035): hash of the Secret set driving the Envoy
@@ -50,6 +62,18 @@ func BuildGatewayStatefulSet(instanceName string, hibernated bool, cfg *config.C
 		// the gateway StatefulSet rolls so Envoy picks up the new chain set
 		// + leaf cert.
 		"agent-platform.ai/envoy-secrets-rev": envoySecretsRev(credentialSecrets),
+	}
+
+	podSpec := corev1.PodSpec{
+		// ADR-041: gateway pod runs as the per-instance SA so
+		// its SPIFFE workload identity matches the agent half
+		// of the pair (same SA on both pods). The gateway-side
+		// AuthorizationPolicy ALLOWs only this principal.
+		ServiceAccountName:            instanceName,
+		TerminationGracePeriodSeconds: &gracePeriod,
+		AutomountServiceAccountToken:  &falseVal,
+		Containers:                    containers,
+		Volumes:                       volumes,
 	}
 
 	return &appsv1.StatefulSet{
@@ -84,17 +108,7 @@ func BuildGatewayStatefulSet(instanceName string, hibernated bool, cfg *config.C
 					Labels:      labels,
 					Annotations: annotations,
 				},
-				Spec: corev1.PodSpec{
-					// ADR-041: gateway pod runs as the per-instance SA so
-					// its SPIFFE workload identity matches the agent half
-					// of the pair (same SA on both pods). The gateway-side
-					// AuthorizationPolicy ALLOWs only this principal.
-					ServiceAccountName:            instanceName,
-					TerminationGracePeriodSeconds: &cfg.TerminationGracePeriod,
-					AutomountServiceAccountToken:  &falseVal,
-					Containers:                    containers,
-					Volumes:                       volumes,
-				},
+				Spec: podSpec,
 			},
 		},
 	}
@@ -152,6 +166,7 @@ func BuildForkGatewayPod(forkName, parentInstanceID string, cfg *config.Config, 
 	containers := []corev1.Container{envoyContainer(cfg, credentialSecrets)}
 
 	falseVal := false
+	gracePeriod := gatewayTerminationGracePeriod
 
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -171,7 +186,7 @@ func BuildForkGatewayPod(forkName, parentInstanceID string, cfg *config.Config, 
 			// scoped to the parent.
 			ServiceAccountName:            forkName,
 			RestartPolicy:                 corev1.RestartPolicyAlways,
-			TerminationGracePeriodSeconds: &cfg.TerminationGracePeriod,
+			TerminationGracePeriodSeconds: &gracePeriod,
 			AutomountServiceAccountToken:  &falseVal,
 			Containers:                    containers,
 			Volumes:                       volumes,

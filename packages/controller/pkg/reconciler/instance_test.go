@@ -49,6 +49,18 @@ func setupReconciler(t *testing.T, agents map[string]*corev1.ConfigMap, objects 
 		EnvoyPort:         10000,
 		IstioTrustDomain:  "cluster.local",
 		IstioWaypointName: "apiserver-waypoint",
+		AgentBase: config.AgentBase{
+			AccessMode:             "ReadWriteMany",
+			TerminationGracePeriod: 5,
+			ContainerSecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+			},
+		},
+		AgentTemplateDefaults: config.AgentTemplateDefaults{
+			AgentHome:       "/home/agent",
+			ImagePullPolicy: "IfNotPresent",
+			StorageSize:     "10Gi",
+		},
 	}
 	getter := &fakeGetter{cms: agents}
 	r := NewInstanceReconciler(client, cfg, NewAgentResolver(getter)).WithDynamicClient(newFakeDynamic())
