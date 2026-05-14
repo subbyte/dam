@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { composeAuthModule } from "./modules/auth/compose.js";
 import { composeCliModule } from "./modules/cli/compose.js";
-import { composeInstancesModule } from "./modules/instances/compose.js";
+import { composeInstanceModule } from "./modules/instance/compose.js";
+import { composeTemplateModule } from "./modules/template/compose.js";
 
 export interface ComposeOptions {
   /** Override for the production config path (resolved via XDG —
@@ -32,13 +33,20 @@ export function compose(opts: ComposeOptions = {}): Command {
     compatService: cli.services.compatService,
     configService: cli.services.configService,
   });
-  // The instances module is wired after auth so its bearer-supplier
-  // closure can reach `auth.exports.tokenProvider`.
-  const instances = composeInstancesModule({
+  // The instance and template modules are wired after auth so their
+  // bearer-supplier closures can reach `auth.exports.tokenProvider`.
+  const template = composeTemplateModule({
     tokenProvider: auth.exports.tokenProvider,
     configService: cli.services.configService,
     compatService: cli.services.compatService,
     serverEnvVar: "DAM_SERVER",
+  });
+  const instance = composeInstanceModule({
+    tokenProvider: auth.exports.tokenProvider,
+    configService: cli.services.configService,
+    compatService: cli.services.compatService,
+    serverEnvVar: "DAM_SERVER",
+    templateService: template.exports.createService,
   });
 
   const program = new Command();
@@ -49,7 +57,8 @@ export function compose(opts: ComposeOptions = {}): Command {
 
   for (const command of cli.commands) program.addCommand(command);
   for (const command of auth.commands) program.addCommand(command);
-  for (const command of instances.commands) program.addCommand(command);
+  for (const command of template.commands) program.addCommand(command);
+  for (const command of instance.commands) program.addCommand(command);
 
   return program;
 }

@@ -1,18 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Instance } from "api-server-api";
-import { createInstanceResolver } from "../modules/instances/services/instance-resolver.js";
-import type { InstancesService } from "../modules/instances/services/instances-service.js";
+import { createInstanceResolver } from "../modules/instance/services/instance-resolver.js";
+import type { InstanceService } from "../modules/instance/services/instance-service.js";
 import { ok, type Result } from "../result.js";
 import type {
   AuthRequiredError,
   TransportError,
-} from "../modules/instances/domain/errors.js";
+} from "../modules/instance/domain/errors.js";
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
     id: "inst-1",
     name: "demo",
     agentId: "agt-1",
+    templateId: null,
+    image: "",
     state: "running",
     channels: [],
     allowedUserEmails: [],
@@ -23,10 +25,13 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 function makeService(stub: {
   list?: () => Result<readonly Instance[], TransportError | AuthRequiredError>;
   get?: (id: string) => Result<Instance | null, TransportError | AuthRequiredError>;
-}): InstancesService {
+}): InstanceService {
   return {
     list: vi.fn(async () => stub.list?.() ?? ok([])),
     get: vi.fn(async (id: string) => stub.get?.(id) ?? ok(null)),
+    deleteAgent: vi.fn(async () => ok(undefined)),
+    deleteInstance: vi.fn(async () => ok(undefined)),
+    restart: vi.fn(async () => ok(undefined)),
   };
 }
 
@@ -35,7 +40,7 @@ describe("instance-resolver", () => {
     it("returns the instance on a happy-path ID lookup", async () => {
       const inst = makeInstance({ id: "inst-42", name: "prod" });
       const resolver = createInstanceResolver({
-        instancesService: makeService({ get: () => ok(inst) }),
+        instanceService: makeService({ get: () => ok(inst) }),
       });
 
       const result = await resolver.resolve("inst-42");
@@ -45,7 +50,7 @@ describe("instance-resolver", () => {
 
     it("maps the service's null (NOT_FOUND-equivalent) to NotFoundError via 'id'", async () => {
       const resolver = createInstanceResolver({
-        instancesService: makeService({ get: () => ok(null) }),
+        instanceService: makeService({ get: () => ok(null) }),
       });
 
       const result = await resolver.resolve("inst-missing");
@@ -61,7 +66,7 @@ describe("instance-resolver", () => {
     it("returns the single matching instance", async () => {
       const inst = makeInstance({ name: "prod" });
       const resolver = createInstanceResolver({
-        instancesService: makeService({
+        instanceService: makeService({
           list: () => ok([makeInstance({ id: "inst-other", name: "staging" }), inst]),
         }),
       });
@@ -73,7 +78,7 @@ describe("instance-resolver", () => {
 
     it("returns NotFoundError via 'name' when zero matches", async () => {
       const resolver = createInstanceResolver({
-        instancesService: makeService({
+        instanceService: makeService({
           list: () => ok([makeInstance({ name: "staging" })]),
         }),
       });
@@ -91,7 +96,7 @@ describe("instance-resolver", () => {
       const b = makeInstance({ id: "inst-B", name: "prod" });
       const c = makeInstance({ id: "inst-C", name: "other" });
       const resolver = createInstanceResolver({
-        instancesService: makeService({ list: () => ok([a, b, c]) }),
+        instanceService: makeService({ list: () => ok([a, b, c]) }),
       });
 
       const result = await resolver.resolve("prod");
@@ -113,7 +118,7 @@ describe("instance-resolver", () => {
       // Deliberate contract: a future `.toLowerCase()` or `.trim()` would
       // silently break addressing, so the resolver pins case-sensitivity.
       const resolver = createInstanceResolver({
-        instancesService: makeService({
+        instanceService: makeService({
           list: () => ok([makeInstance({ name: "prod" })]),
         }),
       });

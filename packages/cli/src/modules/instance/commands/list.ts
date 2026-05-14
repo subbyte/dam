@@ -1,15 +1,20 @@
 import { Command } from "commander";
 import type { Instance } from "api-server-api";
 import type { CompatService, ConfigService } from "../../cli/index.js";
-import type { InstancesService } from "../services/instances-service.js";
+import type { InstanceService } from "../services/instance-service.js";
 import type {
   AuthRequiredError,
   TransportError,
 } from "../domain/errors.js";
 import {
-  EXIT_INSTANCES_BELOW_FLOOR,
-  EXIT_INSTANCES_RUNTIME_FAILURE,
-  EXIT_INSTANCES_SUCCESS,
+  describeConfigError,
+  formatTransportError,
+  printCompatResolveError,
+} from "./errors.js";
+import {
+  EXIT_INSTANCE_BELOW_FLOOR,
+  EXIT_INSTANCE_RUNTIME_FAILURE,
+  EXIT_INSTANCE_SUCCESS,
 } from "./exit-codes.js";
 
 export interface ListCommandDeps {
@@ -17,7 +22,7 @@ export interface ListCommandDeps {
   configService: ConfigService;
   /** Per-host factory — produced by the module's compose. Called once
    *  per command invocation against the resolved Active Host. */
-  createInstancesService: (host: string) => InstancesService;
+  createInstanceService: (host: string) => InstanceService;
   /** Env var name for the server URL — surfaced in the
    *  `no server configured` hint. */
   serverEnvVar: string;
@@ -28,6 +33,10 @@ export function buildListCommand(deps: ListCommandDeps): Command {
     .description("List your Instances")
     .option("--server <url>", "override the configured server URL for this call")
     .option("--json", "emit raw JSON instead of the default table")
+    .addHelpText(
+      "after",
+      "\nExamples:\n  dam instance list\n  dam instance list --json\n",
+    )
     .action(async (opts: { server?: string; json?: boolean }) => {
       const flag = opts.server ? { server: opts.server } : undefined;
 
@@ -38,14 +47,14 @@ export function buildListCommand(deps: ListCommandDeps): Command {
       const compat = await deps.compatService.check({ flag });
       if (!compat.ok) {
         printCompatResolveError(compat.error, deps.serverEnvVar);
-        process.exit(EXIT_INSTANCES_RUNTIME_FAILURE);
+        process.exit(EXIT_INSTANCE_RUNTIME_FAILURE);
       }
       const verdict = compat.value;
       if (verdict.kind === "below-floor") {
         process.stderr.write(
           `error: CLI ${verdict.localCli} is below the server's minimum required version ${verdict.serverMinClient}; upgrade and retry\n`,
         );
-        process.exit(EXIT_INSTANCES_BELOW_FLOOR);
+        process.exit(EXIT_INSTANCE_BELOW_FLOOR);
       }
       if (verdict.kind === "behind-current") {
         process.stderr.write(
@@ -59,32 +68,36 @@ export function buildListCommand(deps: ListCommandDeps): Command {
       const cfg = await deps.configService.getResolved({ flag });
       if (!cfg.ok) {
         process.stderr.write(`error: ${describeConfigError(cfg.error)}\n`);
-        process.exit(EXIT_INSTANCES_RUNTIME_FAILURE);
+        process.exit(EXIT_INSTANCE_RUNTIME_FAILURE);
       }
 
-      const svc = deps.createInstancesService(cfg.value.server);
+      const host = cfg.value.server;
+      const svc = deps.createInstanceService(host);
       const result = await svc.list();
       if (!result.ok) {
-        printServiceError(result.error);
-        process.exit(EXIT_INSTANCES_RUNTIME_FAILURE);
+        printServiceError(result.error, host);
+        process.exit(EXIT_INSTANCE_RUNTIME_FAILURE);
       }
 
       if (opts.json) {
         // Always emit `[]` on empty regardless of TTY — scripts consume
         // this unconditionally.
         process.stdout.write(`${JSON.stringify(result.value)}\n`);
-        process.exit(EXIT_INSTANCES_SUCCESS);
+        process.exit(EXIT_INSTANCE_SUCCESS);
       }
 
       if (result.value.length === 0) {
         // Matches `kubectl get pods` / `gh pr list` conventions: stderr
         // note, empty stdout, exit 0.
         process.stderr.write("No instances.\n");
-        process.exit(EXIT_INSTANCES_SUCCESS);
+        process.stderr.write(
+          "hint: create one with `dam instance create <name> --template <id>`\n",
+        );
+        process.exit(EXIT_INSTANCE_SUCCESS);
       }
 
       process.stdout.write(renderTable(result.value));
-      process.exit(EXIT_INSTANCES_SUCCESS);
+      process.exit(EXIT_INSTANCE_SUCCESS);
     });
 }
 
@@ -92,8 +105,8 @@ export function buildListCommand(deps: ListCommandDeps): Command {
 function renderTable(instances: readonly Instance[]): string {
   const sorted = [...instances].sort((a, b) => a.name.localeCompare(b.name));
   const rows = [
-    ["NAME", "ID", "AGENT", "STATE"],
-    ...sorted.map((i) => [i.name, i.id, i.agentId, i.state]),
+    ["NAME", "ID", "TEMPLATE", "STATE"],
+    ...sorted.map((i) => [i.name, i.id, i.templateId ?? "<custom>", i.state]),
   ];
   const widths = rows[0]!.map((_, col) =>
     Math.max(...rows.map((r) => r[col]!.length)),
@@ -106,39 +119,11 @@ function renderTable(instances: readonly Instance[]): string {
     .join("\n") + "\n";
 }
 
-function describeConfigError(e: { kind: string; reason?: string }): string {
-  if (e.kind === "malformed-config") return e.reason ?? "config is malformed";
-  return "no server configured";
-}
-
-function printCompatResolveError(
-  e: { kind: string; reason?: string; code?: string; message?: string },
-  serverEnvVar: string,
-): void {
-  switch (e.kind) {
-    case "missing-config":
-      process.stderr.write(
-        `error: no server configured; run "dam config set server <url>" or set ${serverEnvVar}\n`,
-      );
-      return;
-    case "malformed-config":
-      process.stderr.write(`error: ${e.reason ?? "config malformed"}\n`);
-      return;
-    case "probe-error":
-      process.stderr.write(`error: cannot reach server: ${e.message ?? e.code ?? "unknown"}\n`);
-      return;
-    default:
-      process.stderr.write(`error: ${e.kind}\n`);
-  }
-}
-
-function printServiceError(error: TransportError | AuthRequiredError): void {
+function printServiceError(error: TransportError | AuthRequiredError, host: string): void {
   if (error.kind === "auth-required") {
-    process.stderr.write(
-      `error: not authenticated: ${error.reason}\n` +
-        `       run "dam auth login" first\n`,
-    );
+    process.stderr.write(`error: not authenticated: ${error.reason}\n`);
+    process.stderr.write("hint: run `dam auth login` first\n");
     return;
   }
-  process.stderr.write(`error: cannot reach server: ${error.reason}\n`);
+  process.stderr.write(`error: ${formatTransportError(error.reason, host)}\n`);
 }
