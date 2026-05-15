@@ -1,15 +1,16 @@
 # CLI
 
-Last verified: 2026-05-14
+Last verified: 2026-05-15
 
 ## Motivated by
 
 - [ADR-039 — Platform CLI foundation](../adrs/039-cli-foundation.md) — TypeScript Node package distributed via npm; reuses the api-server tRPC contract; flat config under XDG-standard locations; server-advertised compatibility floor.
 - [ADR-037 — Remote terminal](../adrs/037-remote-terminal.md) — predecessor; established the "terminal" session mode the CLI complements with `dam chat` (a future verb).
+- [#73 — Import local project context into agent workspace](https://github.com/dam-agents/dam/issues/73) — the `dam import` verb that uploads local files and folders into an Instance.
 
 ## Overview
 
-The `dam` CLI is a TypeScript Node package that users install on their own machine and point at a configured Platform deployment. It never runs inside the cluster. The current surface: `dam --version`, `dam --help` (built-in flags); `dam config set`; `dam ping`; `dam version`; the `dam auth` group (`login`, `logout`, `status`); the `dam instance` group (`list`, `get`, `create`, `delete`, `restart`); the `dam agent` group (`create`); and `dam template list`. Command groups are singular to align with `gh`, `git`, and `docker` conventions. Future verbs — `dam chat`, `dam import` — slot into their own modules and consume the Token Provider seam from `auth` plus the Instance Resolver seam from `instance`.
+The `dam` CLI is a TypeScript Node package that users install on their own machine and point at a configured Platform deployment. It never runs inside the cluster. The current surface: `dam --version`, `dam --help` (built-in flags); `dam config set`; `dam ping`; `dam version`; the `dam auth` group (`login`, `logout`, `status`); the `dam instance` group (`list`, `get`, `create`, `delete`, `restart`); the `dam agent` group (`create`); `dam template list`; and `dam import`. Command groups are singular to align with `gh`, `git`, and `docker` conventions. The remaining future verb — `dam chat` — slots into its own module and consumes the Token Provider seam from `auth` plus the Instance Resolver seam from `instance`.
 
 The CLI shares types directly with the api-server via a shared contract package, so server-side type changes reach the CLI without codegen or manual mirroring. tRPC routes are reached through `@trpc/client` typed against the contract's `AppRouter`; the auth probes (`/api/auth/config`, OIDC discovery) stay as raw `fetch` because they are not tRPC.
 
@@ -97,3 +98,14 @@ Each step lines up with one server-side mutation, in the same order the web UI's
 Anything created during the run (new provider Secret, new GitHub PAT pair, the agent) is tracked in a small ledger; a failure in any of the post-prompt mutations triggers one cleanup pass — `agents.delete` cascade-tears-down the instance and its grants, then any new Secrets are deleted by id. Picked-existing and replace-existing paths stay out of the ledger: the replace path overwrote the value in place, and the old value is unrecoverable. Anything the cleanup itself can't delete surfaces as an orphan summary so the user knows what to remove manually.
 
 The post-success hint points at `dam chat <name>` (the chat verb is a future module). Interrupting at any prompt before the mutation chain exits cleanly with no orphans; interrupting during the wait leaves the agent in place with the same delete-hint, on the basis that the user chose to interrupt and the agent's existence is their call from there.
+
+## Import
+
+`dam import <instance-ref> <path...>` uploads one or more local files or folders into an Instance. The verb consumes the Token Provider seam from `auth`, the `createInstanceResolver` factory from the `instance` module's `index.ts`, and the same `CompatService` / `ConfigService` gates every networked verb uses.
+
+- **Wire shape** — POST `<server>/api/instances/<id>/import`, multipart/form-data with one part `bundle: application/gzip`. Bearer auth. Same contract the UI's [`importBundle`](../../packages/ui/src/modules/files/api/import-bundle.ts) targets; the server-side design rationale lives in [ADR-044](../adrs/044-file-import.md).
+- **Each path argument becomes one top-level entry** under `work/` on the Instance, named by its `basename(path)`. `dam import foo CLAUDE.md .claude src` lands at `work/CLAUDE.md`, `work/.claude/`, `work/src/`. The on-pod `finalize` ([packages/agent-runtime/src/modules/import/finalize.ts](../../packages/agent-runtime/src/modules/import/finalize.ts)) replaces each top-level entry atomically; other entries under `work/` are untouched.
+- **Bundle** — a single gzipped tar built from the supplied paths with [`tar-stream`](https://www.npmjs.com/package/tar-stream) and spooled to a tmpfile. Sent as a `FormData` `Blob` via Node's `openAsBlob` so undici computes `Content-Length` correctly (the server requires it). Symlinks anywhere in the imported tree are skipped (not followed). Excluded basenames at every level: `node_modules`, `.venv`, `__pycache__`, `.DS_Store` — same set the UI uses; rendered into `dam import --help` from the single source of truth.
+- **Tmpdir lifecycle** — `$TMPDIR/dam-import-*` is created up front and torn down by an awaited `cleanup()` after upload. A SIGINT handler is installed alongside the tmpdir and removed by `cleanup()`; on Ctrl+C during pack or upload the handler does a synchronous best-effort rm and exits 130, since the default SIGINT termination skips `finally` blocks.
+- **Top-level replace is destructive** at each named path. The CLI shows a TTY confirm prompt before any upload; `--yes` skips. Non-TTY without `--yes` refuses (exit 2). Cancelled-by-user prints `Cancelled.` to stdout (or `{"cancelled":true}` under `--json`), exit 0.
+- **No service layer** — the verb has a single POST with status-based classification, so the action handler classifies inline (`switch (res.status)`) rather than introducing a port the way `instance` does for tRPC.
