@@ -29,6 +29,7 @@ import {
 } from "../../modules/channels/infrastructure/telegram-threads-repository.js";
 import { createAcpRelay } from "./acp-relay.js";
 import { createTerminalRelay } from "./terminal-relay.js";
+import { getSessionMode } from "../../modules/sessions/infrastructure/sessions-repository.js";
 import { createOAuthRoutes } from "./oauth.js";
 import { mountBrandIconRoutes } from "./brand-icon.js";
 import { createOAuthAppRegistry } from "../../modules/connections/infrastructure/oauth-apps.js";
@@ -49,6 +50,7 @@ import {
   type ApprovalsRelayService,
   type WrapperFrameSender,
 } from "./../../modules/approvals/compose.js";
+import { injectChannelOf } from "./../../modules/approvals/infrastructure/acp-frames.js";
 import {
   composeEgressRulesModule,
   createConnectionRulesSyncAdapter,
@@ -389,6 +391,17 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
     const { schedules, isOwnedSchedule } = composeSchedulesModule(api, config.namespace, user.sub);
     const { sessions } = composeSessionsModule({
       db, namespace: config.namespace, isOwnedInstance, isOwnedSchedule,
+      closeTerminalSession: terminalRelay.closeSession,
+      resetAcpSession: (instanceId, sessionId) =>
+        fetch(`http://${podBaseUrl(instanceId, config.namespace)}/api/sessions/${encodeURIComponent(sessionId)}/reset`, { method: "POST" }).catch(() => {}),
+      notifyModeChange: (instanceId, sessionId, mode) => {
+        const frame = JSON.stringify({
+          jsonrpc: "2.0",
+          method: "platform/sessionModeChanged",
+          params: { sessionId, mode },
+        });
+        redisBus.publish(injectChannelOf(instanceId), frame).catch(() => {});
+      },
     });
     const skills = composeSkillsModule(api, config.namespace, user.sub, db, seedSources, config.brand.name);
     const grants = createAgentGrantsPort(k8sClient, user.sub);
@@ -457,7 +470,9 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
     (sessionId, instanceId) => persistAcpSession(sessionId, instanceId, SessionMode.Chat, SessionType.Regular),
   );
 
-  const terminalRelay = createTerminalRelay(config.namespace, instancesRepo);
+  const terminalRelay = createTerminalRelay(config.namespace, instancesRepo, {
+    getSessionMode: getSessionMode(db),
+  });
 
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
     process.stderr.write(`api-server listening on http://localhost:${config.port}\n`);

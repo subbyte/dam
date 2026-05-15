@@ -12,6 +12,9 @@ export function createSessionsService(deps: {
   isOwnedSchedule: (scheduleId: string) => Promise<boolean>;
   deactivateByScheduleId: (scheduleId: string) => Promise<void>;
   namespace: string;
+  closeTerminalSession?: (sessionId: string) => void;
+  resetAcpSession?: (instanceId: string, sessionId: string) => Promise<void>;
+  notifyModeChange?: (instanceId: string, sessionId: string, mode: SessionMode) => void;
 }): SessionsApiService {
   return {
     async list(instanceId: string, includeChannel?: boolean) {
@@ -63,6 +66,11 @@ export function createSessionsService(deps: {
     async setMode(sessionId: string, instanceId: string, mode: SessionMode) {
       if (!await deps.isOwnedInstance(instanceId)) return;
       await deps.setMode(sessionId, instanceId, mode);
+      if (mode !== SessionMode.Terminal) {
+        deps.closeTerminalSession?.(sessionId);
+        await deps.resetAcpSession?.(instanceId, sessionId);
+      }
+      deps.notifyModeChange?.(instanceId, sessionId, mode);
     },
 
     async delete(sessionId: string, instanceId: string) {
