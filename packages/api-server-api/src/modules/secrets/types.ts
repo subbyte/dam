@@ -346,6 +346,40 @@ export interface AgentAccess {
   secretIds: string[];
 }
 
+/**
+ * Input for {@link SecretsService.createGithubPat}. A single GitHub PAT is
+ * fanned out server-side into two `generic` secrets that share this `name`:
+ * one for `api.github.com` (Bearer / `GH_TOKEN`) and one for `github.com`
+ * (Basic, with the value pre-wrapped as `base64("x-access-token:" + token)`).
+ */
+export interface CreateGithubPatInput {
+  name: string;
+  token: string;
+}
+
+export interface CreateGithubPatOutput {
+  name: string;
+  apiSecretId: string;
+  gitSecretId: string;
+}
+
+/**
+ * Input for {@link SecretsService.updateGithubPat}. Replaces the token on
+ * an existing PAT pair by id, re-wrapping the github.com half's basic-
+ * auth value server-side so callers send `{apiSecretId, gitSecretId,
+ * token}` only.
+ */
+export interface UpdateGithubPatInput {
+  apiSecretId: string;
+  gitSecretId: string;
+  token: string;
+}
+
+export interface UpdateGithubPatOutput {
+  apiSecretId: string;
+  gitSecretId: string;
+}
+
 /** Minimal agent shape returned by `listGrantedAgents` — used by the UI's
  *  env-affecting edit confirmation to show which agents will roll. */
 export interface GrantedAgentSummary {
@@ -356,6 +390,8 @@ export interface GrantedAgentSummary {
 export interface SecretsService {
   list(): Promise<SecretView[]>;
   create(input: CreateSecretInput): Promise<SecretView>;
+  createGithubPat(input: CreateGithubPatInput): Promise<CreateGithubPatOutput>;
+  updateGithubPat(input: UpdateGithubPatInput): Promise<UpdateGithubPatOutput>;
   update(input: UpdateSecretInput): Promise<void>;
   delete(id: string): Promise<void>;
   getAgentAccess(agentId: string): Promise<AgentAccess>;
