@@ -1,6 +1,6 @@
 # Review Mode
 
-The user wants an architecture review of a TypeScript client-server project that follows (or aims to follow) the opinionated TSEng architecture. Architecture docs live at `../architecture/` relative to this file.
+The user wants an architecture review of a TypeScript client-server project that follows (or aims to follow) the opinionated TypeScript Engineering (TSEng) architecture. Architecture docs live at `../architecture/` relative to this file.
 
 ## Scope
 
@@ -14,11 +14,11 @@ For diff and PR scope, the baseline is the unchanged code. Only flag violations 
 
 ## Load Order (Lazy)
 
-Start with [../architecture/index.md](../architecture/index.md). For full reviews, load every linked file. For diff or PR reviews, load the files that cover the layers and concerns the diff touches. Pull more when a finding hints at a rule from a file not yet loaded.
+Start with [../architecture/index.md](../architecture/index.md). For full reviews, load every linked file. For diff or PR reviews, load the files that cover the layers and concerns the diff touches. Load additional files from `../architecture/` when a finding hints at a rule from a file not yet loaded.
 
 ## Output
 
-Only findings about alignment with the architecture docs. This is not a general code review. Do not raise concerns that are not backed by a rule in the docs.
+Report only findings about alignment with the architecture docs, not general code review concerns. Do not raise concerns that are not backed by a rule in the docs.
 
 For each finding: the rule, the location, one-line evidence, and the architecture file it came from.
 
