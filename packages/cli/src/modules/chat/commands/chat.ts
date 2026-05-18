@@ -1,7 +1,9 @@
+import type { TerminalStrategy } from "api-server-api";
 import { Command } from "commander";
-import type { ChatError, ChatService, SessionStrategy } from "../services/chat-service.js";
+import { SERVER_ENV_VAR } from "../../cli/index.js";
+import type { ChatError, ChatService } from "../services/chat-service.js";
 
-export function buildChatCommand(deps: { chatService: ChatService; serverEnvVar: string }): Command {
+export function buildChatCommand(deps: { chatService: ChatService }): Command {
   return new Command("chat")
     .description("Connect your terminal to an agent's interactive TUI")
     .argument("<instance>", "instance name or ID")
@@ -10,7 +12,7 @@ export function buildChatCommand(deps: { chatService: ChatService; serverEnvVar:
     .option("-r, --resume <session-id>", "resume a specific session by ID")
     .option("--reset", "kill existing PTY and start a fresh terminal")
     .action(async (instanceRef: string, opts: { server?: string; continue?: boolean; resume?: string; reset?: boolean }) => {
-      const strategy: SessionStrategy = opts.resume
+      const strategy: TerminalStrategy = opts.resume
         ? { kind: "resume", sessionId: opts.resume }
         : opts.continue ? { kind: "continue" } : { kind: "new" };
 
@@ -19,7 +21,7 @@ export function buildChatCommand(deps: { chatService: ChatService; serverEnvVar:
       });
 
       if (!result.ok) {
-        printError(result.error, deps.serverEnvVar);
+        printError(result.error);
         process.exit(exitCodeFor(result.error));
       }
 
@@ -43,10 +45,10 @@ export function exitCodeFor(e: ChatError): number {
   }
 }
 
-export function printError(e: ChatError, serverEnvVar: string): void {
+export function printError(e: ChatError): void {
   const w = (msg: string) => process.stderr.write(`error: ${msg}\n`);
   switch (e.kind) {
-    case "no-server": w(`no server configured; run "dam config set server <url>" or set ${serverEnvVar}`); return;
+    case "no-server": w(`no server configured; run "dam config set server <url>" or set ${SERVER_ENV_VAR}`); return;
     case "malformed-config": w(e.reason); return;
     case "below-floor": w(`CLI ${e.localCli} is below the server's minimum required version ${e.serverMinClient}; upgrade and retry`); return;
     case "not-found": w(e.via === "id" ? `no instance with id '${e.ref}'` : `no instance named '${e.ref}'`); return;
