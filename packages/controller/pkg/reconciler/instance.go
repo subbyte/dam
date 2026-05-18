@@ -90,6 +90,16 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, cm *corev1.ConfigMap
 		if err := r.applyCertificate(ctx, cert); err != nil {
 			return r.setError(ctx, name, fmt.Sprintf("applying envoy leaf certificate: %v", err))
 		}
+		// cert-manager's default mode does not set an OwnerReference on the
+		// Secret it produces from a Certificate (the global flag
+		// --enable-certificate-owner-ref controls that and we don't require
+		// it), so deleting the Certificate alone leaves the Secret behind.
+		// Patch the produced Secret with an OwnerReference back to the
+		// instance ConfigMap so K8s GC cascade-deletes it with the instance.
+		if err := r.ensureLeafSecretOwnerReference(ctx, name, cm); err != nil {
+			slog.Warn("setting owner ref on envoy leaf TLS Secret; will retry on next reconcile",
+				"instance", name, "error", err)
+		}
 	}
 
 	// ADR-041: per-instance SA must exist before the agent + gateway pods
@@ -219,6 +229,37 @@ func (r *InstanceReconciler) ensureAgentOwnerReference(ctx context.Context, inst
 	})
 }
 
+// ensureLeafSecretOwnerReference adds a non-controller OwnerReference from
+// the cert-manager-produced envoy leaf TLS Secret to the instance CM, so
+// that deleting the instance cascade-deletes the Secret. Returns nil if
+// the Secret does not exist yet (cert-manager has not finished issuing —
+// the next reconcile will retry).
+func (r *InstanceReconciler) ensureLeafSecretOwnerReference(ctx context.Context, instanceName string, instanceCM *corev1.ConfigMap) error {
+	secretName := EnvoyLeafSecretName(instanceName)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		sec, err := r.client.CoreV1().Secrets(r.config.Namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, ref := range sec.OwnerReferences {
+			if ref.UID == instanceCM.UID {
+				return nil
+			}
+		}
+		sec.OwnerReferences = append(sec.OwnerReferences, metav1.OwnerReference{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+			Name:       instanceCM.Name,
+			UID:        instanceCM.UID,
+		})
+		_, err = r.client.CoreV1().Secrets(r.config.Namespace).Update(ctx, sec, metav1.UpdateOptions{})
+		return err
+	})
+}
+
 func (r *InstanceReconciler) Delete(ctx context.Context, name string) {
 	// Owner references in the agent namespace cascade-delete agent +
 	// gateway StatefulSets, the agent + gateway Services, the per-instance
@@ -311,6 +352,67 @@ func (r *InstanceReconciler) ReconcileOrphanPVCs(ctx context.Context) {
 	if deleted > 0 {
 		slog.Info("orphan PVC GC: sweep complete", "deleted", deleted, "scanned", len(pvcs.Items))
 	}
+}
+
+// ReconcileOrphanLeafSecrets deletes any per-instance envoy leaf TLS
+// Secret whose instance ConfigMap no longer exists. Covers historical
+// leaks from before owner-references were added to these Secrets, plus
+// any future Secret that slips through (e.g. cert-manager produced the
+// Secret between the controller patching the ownerRef and the instance
+// being deleted, or the controller crashed in that window).
+//
+// Match is intentionally tight: Secret name ends in `-envoy-tls`, type
+// is `kubernetes.io/tls`, and the prefix names a non-existent
+// ConfigMap. Anything else is left alone.
+func (r *InstanceReconciler) ReconcileOrphanLeafSecrets(ctx context.Context) {
+	secrets, err := r.client.CoreV1().Secrets(r.config.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		slog.Warn("orphan leaf Secret GC: listing Secrets failed", "error", err)
+		return
+	}
+	deleted := 0
+	scanned := 0
+	for _, sec := range secrets.Items {
+		instanceName, ok := instanceNameFromLeafSecret(sec)
+		if !ok {
+			continue
+		}
+		scanned++
+		_, err := r.client.CoreV1().ConfigMaps(r.config.Namespace).Get(ctx, instanceName, metav1.GetOptions{})
+		if err == nil {
+			continue
+		}
+		if !errors.IsNotFound(err) {
+			slog.Warn("orphan leaf Secret GC: API lookup failed", "instance", instanceName, "error", err)
+			continue
+		}
+		if err := r.client.CoreV1().Secrets(r.config.Namespace).Delete(ctx, sec.Name, metav1.DeleteOptions{}); err != nil {
+			slog.Warn("orphan leaf Secret GC: delete failed", "secret", sec.Name, "instance", instanceName, "error", err)
+			continue
+		}
+		slog.Info("orphan leaf Secret GC: deleted Secret for missing instance", "secret", sec.Name, "instance", instanceName)
+		deleted++
+	}
+	if deleted > 0 {
+		slog.Info("orphan leaf Secret GC: sweep complete", "deleted", deleted, "scanned", scanned)
+	}
+}
+
+// instanceNameFromLeafSecret returns (instance, true) if the Secret is
+// shaped like a per-instance envoy leaf TLS Secret produced by
+// cert-manager from BuildEnvoyLeafCertificate, else ("", false).
+func instanceNameFromLeafSecret(sec corev1.Secret) (string, bool) {
+	if sec.Type != corev1.SecretTypeTLS {
+		return "", false
+	}
+	const suffix = envoyLeafSecretSuffix
+	if len(sec.Name) <= len(suffix) {
+		return "", false
+	}
+	if sec.Name[len(sec.Name)-len(suffix):] != suffix {
+		return "", false
+	}
+	return sec.Name[:len(sec.Name)-len(suffix)], true
 }
 
 func (r *InstanceReconciler) setError(ctx context.Context, name, msg string) error {
