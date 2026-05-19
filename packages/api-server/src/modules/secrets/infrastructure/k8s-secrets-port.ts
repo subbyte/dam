@@ -50,6 +50,14 @@ export function resolveInjection(
   authMode: AuthMode | undefined,
   injectionConfig: InjectionConfig | undefined,
 ): { headerName: string; valueFormat: string } {
+  // Explicit `injectionConfig` wins over preset — twins (ADR-044) share `type`
+  // with the primary but carry their own header from `extraInjections`.
+  if (injectionConfig?.headerName) {
+    return {
+      headerName: injectionConfig.headerName,
+      valueFormat: injectionConfig.valueFormat ?? "Bearer {value}",
+    };
+  }
   if (isProviderPresetType(type as SecretType)) {
     const preset: ProviderPreset =
       PROVIDERS[type as Exclude<SecretType, "generic">];
@@ -62,10 +70,9 @@ export function resolveInjection(
         valueFormat: mode.injection.valueFormat ?? "{value}",
       };
     }
-    // Fall through to default Bearer for presets without an explicit override.
   }
   return {
-    headerName: injectionConfig?.headerName ?? "Authorization",
+    headerName: "Authorization",
     valueFormat: injectionConfig?.valueFormat ?? "Bearer {value}",
   };
 }
