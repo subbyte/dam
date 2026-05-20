@@ -19,23 +19,16 @@ beforeAll(async () => {
   // claude-code template ships with the runtime; same image schedules
   // tests rely on.
   const agent = await client.agents.create.mutate({
-    name: "test-import-agent",
+    name: "test-import-inst",
     templateId: "claude-code",
     description: "import e2e",
   });
   AGENT_ID = agent.id;
-  const inst = await client.instances.create.mutate({
-    name: "test-import-inst",
-    agentId: AGENT_ID,
-  });
-  INSTANCE_ID = inst.id;
+  INSTANCE_ID = agent.id;
   await waitForPodReady(`${INSTANCE_ID}-0`, 240_000);
 });
 
 afterAll(async () => {
-  try {
-    await client.instances.delete.mutate({ id: INSTANCE_ID });
-  } catch {}
   try {
     await client.agents.delete.mutate({ id: AGENT_ID });
   } catch {}
@@ -72,7 +65,7 @@ async function postImport(
     new Blob([new Uint8Array(bundle)], { type: "application/gzip" }),
     "bundle.tar.gz",
   );
-  const res = await fetch(`${API_BASE}/api/instances/${INSTANCE_ID}/import`, {
+  const res = await fetch(`${API_BASE}/api/agents/${INSTANCE_ID}/import`, {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN}` },
     body: form,
@@ -82,7 +75,7 @@ async function postImport(
 
 async function readFile(path: string): Promise<string | null> {
   const res = await fetch(
-    `${API_BASE}/api/instances/${INSTANCE_ID}/trpc/files.read?input=${encodeURIComponent(JSON.stringify({ path }))}`,
+    `${API_BASE}/api/agents/${INSTANCE_ID}/trpc/files.read?input=${encodeURIComponent(JSON.stringify({ path }))}`,
     { headers: { Authorization: `Bearer ${TOKEN}` } },
   );
   const text = await res.text();

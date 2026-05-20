@@ -133,12 +133,12 @@ const envoySecretTypeAllowOnly = "allow-only"
 // listAgentCredentialSecrets returns the owner's credential Secrets filtered
 // by the per-agent grant annotations on the instance ConfigMap. See
 // `filterByGrants` for the precise semantics.
-func listAgentCredentialSecrets(ctx context.Context, client kubernetes.Interface, namespace, owner string, instanceCM *corev1.ConfigMap) ([]corev1.Secret, error) {
+func listAgentCredentialSecrets(ctx context.Context, client kubernetes.Interface, namespace, owner string, agentCM *corev1.ConfigMap) ([]corev1.Secret, error) {
 	all, err := listOwnerCredentialSecrets(ctx, client, namespace, owner)
 	if err != nil {
 		return nil, err
 	}
-	return filterByGrants(all, instanceCM.Annotations), nil
+	return filterByGrants(all, agentCM.Annotations), nil
 }
 
 // filterByGrants narrows the owner's credential Secret list using the agent's
@@ -1103,7 +1103,7 @@ func BuildEnvoyBootstrapConfigMap(instanceName, extAuthzInstanceID string, cfg *
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      EnvoyBootstrapName(instanceName),
 			Namespace: cfg.Namespace,
-			Labels:    map[string]string{"agent-platform.ai/instance": instanceName},
+			Labels:    map[string]string{LabelAgent: instanceName},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(ownerCM, corev1.SchemeGroupVersion.WithKind("ConfigMap")),
 			},

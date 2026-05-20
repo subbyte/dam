@@ -16,7 +16,7 @@ import {
 import type { ForkOrchestratorPort } from "../infrastructure/ports.js";
 
 export interface OpenForkInput {
-  instanceId: string;
+  agentId: string;
   foreignSub: string;
   replyId: string;
   sessionId?: string;
@@ -33,7 +33,11 @@ export function createForksService(deps: {
   generateForkId?: () => string;
 }): ForksService {
   const emit = deps.emit ?? defaultEmit;
-  const generateForkId = deps.generateForkId ?? randomUUID;
+  // Prefix UUIDs with `fork-` so derived K8s names (`<forkId>-gateway`
+  // Service, fork Pod, etc.) always start with an alphabetic character —
+  // DNS-1035 rejects labels that start with a digit, and randomUUID() can
+  // produce one (e.g. "041213f3-..." → "041213f3-...-gateway" fails apply).
+  const generateForkId = deps.generateForkId ?? (() => `fork-${randomUUID()}`);
   const open = new Map<string, Fork>();
 
   function emitFailed(
@@ -90,7 +94,7 @@ export function createForksService(deps: {
         forkId,
         replyId: input.replyId,
         spec: {
-          instanceId: input.instanceId,
+          agentId: input.agentId,
           foreignSub: toForeignSub(input.foreignSub),
           ...(input.sessionId !== undefined
             ? { sessionId: input.sessionId }

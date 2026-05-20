@@ -1,7 +1,7 @@
 import type { Db } from "db";
 import type { SessionsApiService, SessionMode } from "api-server-api";
 import {
-  listSessionsByInstance,
+  listSessionsByAgent,
   listSessionsByScheduleId,
   findActiveByScheduleId,
   deactivateByScheduleId,
@@ -14,11 +14,11 @@ import { createSessionsService } from "./services/sessions-service.js";
 export function composeSessionsModule(deps: {
   db: Db;
   namespace: string;
-  isOwnedInstance: (instanceId: string) => Promise<boolean>;
+  isOwnedAgent: (agentId: string) => Promise<boolean>;
   isOwnedSchedule: (scheduleId: string) => Promise<boolean>;
   closeTerminalSession?: (sessionId: string) => void;
   notifyModeChange?: (
-    instanceId: string,
+    agentId: string,
     sessionId: string,
     mode: SessionMode,
   ) => void;
@@ -27,13 +27,13 @@ export function composeSessionsModule(deps: {
 } {
   return {
     sessions: createSessionsService({
-      listByInstance: listSessionsByInstance(deps.db),
+      listByAgent: listSessionsByAgent(deps.db),
       listByScheduleId: listSessionsByScheduleId(deps.db),
       findActiveByScheduleId: findActiveByScheduleId(deps.db),
       upsert: upsertSession(deps.db),
       setMode: setSessionMode(deps.db),
       delete: deleteSession(deps.db),
-      isOwnedInstance: deps.isOwnedInstance,
+      isOwnedAgent: deps.isOwnedAgent,
       isOwnedSchedule: deps.isOwnedSchedule,
       deactivateByScheduleId: deactivateByScheduleId(deps.db),
       namespace: deps.namespace,

@@ -10,7 +10,7 @@ import type { ForkSpec } from "../../modules/forks/domain/fork.js";
 import { toForeignSub } from "../../modules/forks/domain/fork.js";
 
 const spec: ForkSpec = {
-  instanceId: "inst-abc",
+  agentId: "inst-abc",
   foreignSub: toForeignSub("kc-user-42"),
   sessionId: "sess-1",
 };
@@ -22,14 +22,14 @@ describe("buildForkConfigMap", () => {
     expect(cm.metadata?.name).toBe("fork-1");
     expect(cm.metadata?.labels).toMatchObject({
       "agent-platform.ai/type": "agent-fork",
-      "agent-platform.ai/instance": "inst-abc",
+      "agent-platform.ai/agent": "inst-abc",
       "agent-platform.ai/fork-id": "fork-1",
     });
 
     const body = yaml.load(cm.data!["spec.yaml"]) as Record<string, unknown>;
     expect(body).toEqual({
       version: "agent-platform.ai/v1",
-      instance: "inst-abc",
+      agentName: "inst-abc",
       foreignSub: "kc-user-42",
       sessionId: "sess-1",
     });
@@ -37,7 +37,7 @@ describe("buildForkConfigMap", () => {
 
   it("omits sessionId when not provided", () => {
     const withoutSession: ForkSpec = {
-      instanceId: "inst-abc",
+      agentId: "inst-abc",
       foreignSub: toForeignSub("kc-user-42"),
     };
     const cm = buildForkConfigMap({
