@@ -97,7 +97,11 @@ export type {
   ConnectionsService,
 } from "./modules/connections/types.js";
 
-export { SessionType, SessionMode } from "./modules/sessions/types.js";
+export {
+  SessionType,
+  SessionMode,
+  sessionModeSchema,
+} from "./modules/sessions/types.js";
 export type {
   SessionView,
   SessionResolution,
@@ -169,3 +173,27 @@ export type {
   UpdateEgressRuleInput,
   EgressRulesService,
 } from "./modules/egress-rules/types.js";
+
+// ACP platform/* synthetic notifications
+export {
+  platformTurnEndedNotificationSchema,
+  platformTurnEndedParamsSchema,
+  platformSessionModeChangedNotificationSchema,
+  platformSessionModeChangedParamsSchema,
+  buildPlatformTurnEndedNotification,
+  buildPlatformSessionModeChangedNotification,
+} from "./modules/acp/types.js";
+export type {
+  PlatformTurnEndedNotification,
+  PlatformTurnEndedParams,
+  PlatformSessionModeChangedNotification,
+  PlatformSessionModeChangedParams,
+} from "./modules/acp/types.js";
+
+// Brand
+export { brandSchema } from "./modules/brand/types.js";
+export type { Brand } from "./modules/brand/types.js";
+
+// Auth config
+export { authConfigSchema } from "./modules/auth/types.js";
+export type { AuthConfig } from "./modules/auth/types.js";
