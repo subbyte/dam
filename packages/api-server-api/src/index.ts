@@ -1,13 +1,12 @@
 export type { AppRouter } from "./router.js";
 export type { ApiContext, UserIdentity } from "./context.js";
 
-export { ChannelType, type EnvVar } from "./modules/shared.js";
+export { ChannelType, envVarSchema, type EnvVar } from "./modules/shared.js";
 
 export { SPEC_VERSION } from "./modules/templates/types.js";
 export {
   mountSchema,
   resourcesSchema,
-  envVarSchema,
   skillSourceSeedSchema,
   templateSpecSchema,
 } from "./modules/templates/schemas.js";
@@ -19,14 +18,15 @@ export type {
   Resources,
   SkillSourceSeed,
 } from "./modules/templates/types.js";
+export { templateGetInputSchema } from "./modules/templates/schemas.js";
 
 export type {
   Agent,
   AgentSpec,
   AgentState,
   AgentsService,
-  CreateAgentInput,
-  UpdateAgentInput,
+  AgentCreateInput,
+  AgentUpdateInput,
   ConnectSlackError,
   ConnectSlackResult,
   Channel,
@@ -34,6 +34,18 @@ export type {
   TelegramChannel,
   ChannelConfig,
 } from "./modules/agents/types.js";
+export {
+  agentConnectSlackInputSchema,
+  agentConnectTelegramInputSchema,
+  agentCreateInputSchema,
+  agentDeleteInputSchema,
+  agentDisconnectSlackInputSchema,
+  agentDisconnectTelegramInputSchema,
+  agentGetInputSchema,
+  agentRestartInputSchema,
+  agentUpdateInputSchema,
+  agentWakeInputSchema,
+} from "./modules/agents/schemas.js";
 export {
   PROTECTED_AGENT_ENV_NAMES,
   isProtectedAgentEnvName,
@@ -52,11 +64,21 @@ export type {
   ScheduleStatus,
   QuietWindow,
   ScheduleCreator,
-  CreateCronScheduleInput,
-  CreateRRuleScheduleInput,
-  UpdateRRuleScheduleInput,
+  ScheduleCreateCronInput,
+  ScheduleCreateRRuleInput,
+  ScheduleUpdateRRuleInput,
   SchedulesService,
 } from "./modules/schedules/types.js";
+export {
+  quietWindowSchema,
+  scheduleCreateCronInputSchema,
+  scheduleCreateRRuleInputSchema,
+  scheduleDeleteInputSchema,
+  scheduleGetInputSchema,
+  scheduleListInputSchema,
+  scheduleToggleInputSchema,
+  scheduleUpdateRRuleInputSchema,
+} from "./modules/schedules/schemas.js";
 
 export type {
   SecretType,
@@ -64,12 +86,12 @@ export type {
   ProviderPresetMode,
   ProviderPresetType,
   SecretView,
-  CreateSecretInput,
-  CreateGithubPatInput,
+  SecretCreateInput,
+  SecretCreateGithubPatInput,
   CreateGithubPatOutput,
-  UpdateGithubPatInput,
+  SecretUpdateGithubPatInput,
   UpdateGithubPatOutput,
-  UpdateSecretInput,
+  SecretUpdateInput,
   AgentAccess,
   SecretsService,
   EnvMapping,
@@ -78,9 +100,20 @@ export type {
   BobModelPins,
 } from "./modules/secrets/types.js";
 export {
+  secretCreateGithubPatInputSchema,
+  secretCreateInputSchema,
+  secretDeleteInputSchema,
+  secretGetAgentAccessInputSchema,
+  secretListGrantedAgentsInputSchema,
+  secretSetAgentAccessInputSchema,
+  secretTestAnthropicInputSchema,
+  secretUpdateGithubPatInputSchema,
+  secretUpdateInputSchema,
+} from "./modules/secrets/schemas.js";
+export { ENV_NAME_RE } from "./modules/shared.js";
+export {
   DEFAULT_ENV_PLACEHOLDER,
   DEFAULT_INJECTION_CONFIG,
-  ENV_NAME_RE,
   isValidEnvName,
   PROVIDERS,
   PROVIDER_PRESET_TYPES,
@@ -93,10 +126,7 @@ export {
   bobPinsFromEnvMappings,
   BOB_CHAT_MODES,
 } from "./modules/secrets/types.js";
-export {
-  hostPatternSchema,
-  updateSecretInputSchema,
-} from "./modules/secrets/schemas.js";
+export { hostPatternSchema } from "./modules/secrets/schemas.js";
 
 export type { ChannelsService } from "./modules/channels/types.js";
 
@@ -106,6 +136,10 @@ export type {
   AppConnectionView,
   ConnectionsService,
 } from "./modules/connections/types.js";
+export {
+  connectionGetAgentConnectionsInputSchema,
+  connectionSetAgentConnectionsInputSchema,
+} from "./modules/connections/schemas.js";
 
 export {
   SessionType,
@@ -118,6 +152,16 @@ export type {
   TerminalStrategy,
   SessionsService as SessionsApiService,
 } from "./modules/sessions/types.js";
+export {
+  sessionCreateInputSchema,
+  sessionDeleteInputSchema,
+  sessionListByScheduleIdInputSchema,
+  sessionListInputSchema,
+  sessionResetByScheduleIdInputSchema,
+  sessionResolveTerminalInputSchema,
+  sessionSetModeInputSchema,
+  terminalStrategySchema,
+} from "./modules/sessions/schemas.js";
 
 export {
   OP_INPUT,
@@ -147,19 +191,38 @@ export type {
 } from "./modules/pod-files/types.js";
 
 export type {
+  LocalSkill,
   Skill,
+  SkillCreateSourceInput,
+  SkillInstallInput,
+  SkillPublishInput,
+  SkillPublishRecord,
+  SkillPublishResult,
   SkillRef,
   SkillSource,
   SkillsService,
   SkillsState,
-  SkillPublishRecord,
-  CreateSkillSourceInput,
-  InstallSkillInput,
-  UninstallSkillInput,
-  LocalSkill,
-  PublishSkillInput,
-  PublishSkillResult,
+  SkillUninstallInput,
 } from "./modules/skills/types.js";
+export {
+  localSkillSchema,
+  skillCreateSourceInputSchema,
+  skillDeleteSourceInputSchema,
+  skillInstallInputSchema,
+  skillListInputSchema,
+  skillListLocalInputSchema,
+  skillListSourcesInputSchema,
+  skillPublishInputSchema,
+  skillPublishRecordSchema,
+  skillPublishResultSchema,
+  skillRefSchema,
+  skillRefreshSourceInputSchema,
+  skillSchema,
+  skillSourceSchema,
+  skillStateInputSchema,
+  skillStateOutputSchema,
+  skillUninstallInputSchema,
+} from "./modules/skills/schemas.js";
 
 export type {
   ApprovalType,
@@ -172,17 +235,39 @@ export type {
   AcpPermissionOptionKind,
   ApprovalView,
   ApprovalsService,
+  ApprovalListOptions,
 } from "./modules/approvals/types.js";
+export {
+  approvalApproveHostInputSchema,
+  approvalApproveOnceInputSchema,
+  approvalApprovePermanentInputSchema,
+  approvalDenyForeverInputSchema,
+  approvalDismissInputSchema,
+  approvalListForInstanceInputSchema,
+  approvalListForOwnerInputSchema,
+  approvalListOptionsSchema,
+  approvalStatusSchema,
+} from "./modules/approvals/schemas.js";
 
 export type {
   RuleVerdict,
   EgressRuleSource,
   EgressPreset,
   EgressRuleView,
-  CreateEgressRuleInput,
-  UpdateEgressRuleInput,
+  EgressRuleCreateInput,
+  EgressRuleUpdateInput,
   EgressRulesService,
 } from "./modules/egress-rules/types.js";
+export {
+  egressPresetSchema,
+  egressRuleApplyPresetInputSchema,
+  egressRuleCreateInputSchema,
+  egressRuleCurrentPresetInputSchema,
+  egressRuleListForAgentInputSchema,
+  egressRuleRevokeInputSchema,
+  egressRuleUpdateInputSchema,
+  ruleVerdictSchema,
+} from "./modules/egress-rules/schemas.js";
 
 // ACP platform/* synthetic notifications
 export {

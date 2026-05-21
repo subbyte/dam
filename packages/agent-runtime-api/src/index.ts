@@ -8,22 +8,40 @@ export type {
   FilesDomainError,
   FilesService,
 } from "./modules/files/types.js";
+export {
+  fileCreateInputSchema,
+  fileMkdirInputSchema,
+  fileReadInputSchema,
+  fileRemoveInputSchema,
+  fileRenameInputSchema,
+  fileUploadInputSchema,
+  fileWriteInputSchema,
+  pathSchema,
+} from "./modules/files/schemas.js";
 export type {
   GitHubErrorBody,
-  InstallSkillInput,
-  InstallSkillResult,
-  ListLocalSkillsInput,
   LocalSkill,
   LocalSkillFile,
-  PublishSkillInput,
-  PublishSkillResult,
-  ReadLocalSkillInput,
-  ReadLocalSkillResult,
-  ScanSkillSourceInput,
   ScannedSkill,
+  SkillInstallInput,
+  SkillInstallResult,
+  SkillListLocalInput,
+  SkillPublishInput,
+  SkillPublishResult,
+  SkillReadLocalInput,
+  SkillReadLocalResult,
+  SkillScanInput,
   SkillsDomainError,
   SkillsService,
-  UninstallSkillInput,
+  SkillUninstallInput,
 } from "./modules/skills/types.js";
+export {
+  skillInstallInputSchema,
+  skillListLocalInputSchema,
+  skillPublishInputSchema,
+  skillReadLocalInputSchema,
+  skillScanInputSchema,
+  skillUninstallInputSchema,
+} from "./modules/skills/schemas.js";
 export { importBundleResultSchema } from "./modules/import/types.js";
 export type { ImportBundleResult } from "./modules/import/types.js";
