@@ -90,6 +90,8 @@ export interface IbmLitellmModelPins {
   subagent: string;
   /** `ANTHROPIC_MODEL` — fallback when no `ANTHROPIC_DEFAULT_*_MODEL` matches. */
   default: string;
+  /** `OPENAI_MODEL` — model ID for Codex and other OpenAI-compatible agents. */
+  openaiModel: string;
 }
 
 export const IBM_LITELLM_DEFAULT_MODEL_PINS: IbmLitellmModelPins = {
@@ -98,6 +100,7 @@ export const IBM_LITELLM_DEFAULT_MODEL_PINS: IbmLitellmModelPins = {
   haiku: "aws/claude-haiku-4-5",
   subagent: "aws/claude-opus-4-6",
   default: "aws/claude-opus-4-6",
+  openaiModel: "gpt-5.5",
 };
 
 const IBM_LITELLM_HOST = "ete-litellm.ai-models.vpc-int.res.ibm.com";
@@ -109,9 +112,9 @@ const IBM_LITELLM_BASE_URL = `https://${IBM_LITELLM_HOST}`;
  * advanced disclosure; the default bundle (with `IBM_LITELLM_DEFAULT_MODEL_PINS`)
  * is what the registry stores.
  *
- * 13 entries: 1 credential placeholder, 1 endpoint pin, 2 behavior flags,
- * 5 Claude Code model pins, 4 pi-agent `openai-proxy` SPECS overrides
- * (`pi-dynamic-providers/index.ts`).
+ * 16 entries: 1 credential placeholder, 1 endpoint pin, 2 behavior flags,
+ * 5 Claude Code model pins, 4 pi-agent `openai-proxy` overrides
+ * (`pi-dynamic-providers/index.ts`), 3 Codex/OpenAI-compatible env vars.
  */
 export function ibmLitellmEnvMappings(
   pins: IbmLitellmModelPins = IBM_LITELLM_DEFAULT_MODEL_PINS,
@@ -130,6 +133,9 @@ export function ibmLitellmEnvMappings(
     { envName: "OPENAI_PROXY_MODEL", placeholder: pins.opus },
     { envName: "OPENAI_PROXY_CONTEXT_WINDOW", placeholder: "200000" },
     { envName: "OPENAI_PROXY_MAX_TOKENS", placeholder: "8192" },
+    { envName: "OPENAI_API_KEY", placeholder: DEFAULT_ENV_PLACEHOLDER },
+    { envName: "OPENAI_BASE_URL", placeholder: IBM_LITELLM_BASE_URL },
+    { envName: "OPENAI_MODEL", placeholder: pins.openaiModel },
   ];
 }
 
@@ -158,6 +164,8 @@ export function ibmLitellmPinsFromEnvMappings(
       IBM_LITELLM_DEFAULT_MODEL_PINS.subagent,
     default:
       lookup("ANTHROPIC_MODEL") ?? IBM_LITELLM_DEFAULT_MODEL_PINS.default,
+    openaiModel:
+      lookup("OPENAI_MODEL") ?? IBM_LITELLM_DEFAULT_MODEL_PINS.openaiModel,
   };
 }
 
