@@ -93,11 +93,6 @@ export interface LogEntry {
 export type { SessionView } from "api-server-api";
 export { SessionType } from "api-server-api";
 
-export interface TreeEntry {
-  path: string;
-  type: "file" | "dir";
-}
-
 export interface TemplateView {
   id: string;
   name: string;
