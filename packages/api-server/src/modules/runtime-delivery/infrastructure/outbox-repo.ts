@@ -8,6 +8,7 @@ import {
   or,
   sql,
   type Db,
+  type DbTx,
   runtimeStateOutbox,
   runtimeEvents,
   agents as agentsTable,
@@ -34,7 +35,7 @@ export interface PendingEventRow {
 
 export interface OutboxRepo {
   getRow(agentId: string): Promise<OutboxRow | null>;
-  bumpVersion(agentId: string, db?: Db): Promise<number>;
+  bumpVersion(agentId: string, tx?: Db | DbTx): Promise<number>;
   pendingEvents(agentId: string): Promise<PendingEventRow[]>;
   stampAck(
     agentId: string,
@@ -43,7 +44,10 @@ export interface OutboxRepo {
   ): Promise<void>;
   listStale(slopMs: number, limit: number): Promise<OutboxRow[]>;
   deleteExpiredEvents(): Promise<number>;
-  insertEvent(input: PendingEventRow & { createdAt?: Date }): Promise<void>;
+  insertEvent(
+    input: PendingEventRow & { createdAt?: Date },
+    tx?: Db | DbTx,
+  ): Promise<void>;
 }
 
 interface InternalRow {
@@ -165,8 +169,8 @@ export function createOutboxRepo(db: Db): OutboxRepo {
       return result.length;
     },
 
-    async insertEvent(input): Promise<void> {
-      await db.insert(runtimeEvents).values({
+    async insertEvent(input, tx = db): Promise<void> {
+      await tx.insert(runtimeEvents).values({
         id: input.id,
         agentId: input.agentId,
         kind: input.kind,

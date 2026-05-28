@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { TRPCError } from "@trpc/server";
 import type {
   AgentConnections,
   Connection,
   ConnectionsService,
   ConnectionTemplateView,
   ConnectionView,
+  Contribution,
 } from "api-server-api";
 import type { SecretStore } from "../../secret-store/index.js";
 import type { ConnectionsRepository } from "../infrastructure/connections-repository.js";
@@ -86,6 +88,12 @@ export function createConnectionsService(deps: {
       const conn = await deps.repo.get(id, deps.ownerId);
       if (!conn) return;
 
+      // Capture the agents that had this granted BEFORE the cascade so
+      // we can fan-out the removal afterward — otherwise the deletion
+      // doesn't reach the agent and stale entries (e.g. an mcp-entry)
+      // are left behind in `.mcp.json`.
+      const affectedAgents = await deps.repo.listAgentsForConnection(id);
+
       const paths = new Set<string>();
       switch (conn.auth.kind) {
         case "oauth":
@@ -105,6 +113,24 @@ export function createConnectionsService(deps: {
       }
 
       await deps.repo.delete(id, deps.ownerId);
+
+      // Re-run fan-out per affected agent with the post-delete grant
+      // set. Drives the runtime channel (drops the mcp-entry from
+      // `.mcp.json`), egress rules, and secrets-rev updates.
+      if (affectedAgents.length > 0) {
+        const ownerConnsAfter = await deps.repo.listByOwner(deps.ownerId);
+        const allOwnerConnectionIds = new Set(ownerConnsAfter.map((c) => c.id));
+        for (const agentId of affectedAgents) {
+          const grantedConnections =
+            await deps.repo.listConnectionsForAgent(agentId);
+          await deps.fanOut.apply({
+            agentId,
+            ownerId: deps.ownerId,
+            grantedConnections,
+            allOwnerConnectionIds,
+          });
+        }
+      }
 
       const template = deps.templates.get(conn.templateId);
       emit({
@@ -177,11 +203,21 @@ export function createConnectionsService(deps: {
       );
 
       const id = newConnectionId();
+      // The agent's mcp-entry plugin keys `.mcp.json` by contribution
+      // `name` (last write wins). Template-declared and code-pushed
+      // mcp-entry contributions default to `template.id`, so two
+      // Connections from the same template would collide. Re-stamp the
+      // name per-Connection using the user-given (slug-validated, DB-
+      // unique-per-owner) connection name — that's the keyspace.
+      const contributions = built.contributions.map(
+        (c): Contribution =>
+          c.kind === "mcp-entry" ? { ...c, name: input.name } : c,
+      );
       const secretPath = connectionSecretPath(built.auth);
 
       if (secretPath) {
         const placeholderSds = buildConnectionSdsFields(
-          built.contributions,
+          contributions,
           CONNECTION_TOKEN_PLACEHOLDER,
         );
         await deps.secretStore.put(
@@ -194,20 +230,35 @@ export function createConnectionsService(deps: {
               "agent-platform.ai/secret-type": "connection",
               "agent-platform.ai/connection": id,
             },
-            extraAnnotations: connectionSecretAnnotations(built.contributions),
+            extraAnnotations: connectionSecretAnnotations(contributions),
           },
         );
       }
 
-      await deps.repo.insert({
-        id,
-        ownerId: deps.ownerId,
-        templateId: template.id,
-        name: input.name?.trim() || built.defaultName,
-        inputs: stripSecretsFromInputs(input),
-        auth: built.auth,
-        contributions: built.contributions,
-      });
+      try {
+        await deps.repo.insert({
+          id,
+          ownerId: deps.ownerId,
+          templateId: template.id,
+          name: input.name,
+          inputs: stripSecretsFromInputs(input),
+          auth: built.auth,
+          contributions,
+        });
+      } catch (err) {
+        // Postgres unique-violation on `connections_owner_name_unique_idx`
+        // — surface a clean CONFLICT so the UI can show "pick a different
+        // name" instead of a 500. SQLSTATE 23505 is the unique-violation
+        // class; matching on it (not on the message) survives library
+        // wording changes.
+        if (isUniqueViolation(err)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `A connection named "${input.name}" already exists. Names must be unique per user.`,
+          });
+        }
+        throw err;
+      }
       return id;
     },
 
@@ -250,6 +301,12 @@ function deriveStatus(conn: Connection): ConnectionView["status"] {
 
 function newConnectionId(): string {
   return `conn-${randomBytes(6).toString("hex")}`;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; cause?: { code?: unknown } };
+  return e.code === "23505" || e.cause?.code === "23505";
 }
 
 function connectionSecretPath(auth: Connection["auth"]): string | null {

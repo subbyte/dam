@@ -1,4 +1,3 @@
-import type { Db } from "db";
 import type { Connection, Contribution } from "api-server-api";
 import type { RuntimeMutator } from "../../runtime-delivery/index.js";
 
@@ -23,7 +22,6 @@ export interface ContributionFanOut {
 }
 
 export function createContributionFanOut(deps: {
-  db: Db;
   port: FanOutPort;
   runtimeMutator: RuntimeMutator;
 }): ContributionFanOut {
@@ -77,16 +75,15 @@ export function createContributionFanOut(deps: {
         await deps.port.bumpSecretsRev(agentId);
       }
 
-      const hasRuntimeChannelContribs = allContribs.some(
-        (c) =>
-          c.kind === "file" || c.kind === "mcp-entry" || c.kind === "skill-ref",
-      );
-      if (hasRuntimeChannelContribs || hasEnvContribs) {
-        await deps.db.transaction(async (tx) => {
-          await deps.runtimeMutator.commitInTx(tx as unknown as Db, agentId);
-        });
-        await deps.runtimeMutator.enqueueAfterCommit(agentId);
-      }
+      // Bump the outbox unconditionally on every fan-out. Gating on "the
+      // post-change set still has runtime-channel contributions" would
+      // skip the bump on a shrink-to-empty change (e.g. disconnecting the
+      // only MCP-bearing Connection), leaving the agent's .mcp.json /
+      // installed files / env stale with no way back. The agent-side
+      // hash-dedupe in `applyState` already short-circuits no-op
+      // deliveries, so over-bumping is cheap and the conservative choice.
+      await deps.runtimeMutator.bump(agentId, []);
+      await deps.runtimeMutator.enqueueAfterCommit(agentId);
     },
   };
 }

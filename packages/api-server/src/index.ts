@@ -377,6 +377,7 @@ const runtimeDelivery = composeRuntimeDelivery({
   namespace: config.namespace,
   bullConnection,
   agentRunningPort: { isRunning: () => true },
+  harnessServerUrl: config.harnessServerUrl,
 });
 runtimeDelivery.sweep.start();
 

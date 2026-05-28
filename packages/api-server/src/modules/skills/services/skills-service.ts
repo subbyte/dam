@@ -375,6 +375,7 @@ export function createSkillsService(deps: SkillsServiceDeps): SkillsService {
           : {}),
       };
       await deps.agentSkillsRepo.upsertSkill(input.agentId, ref);
+      await deps.runtimeMutator.bump(input.agentId, []);
       await deps.runtimeMutator.enqueueAfterCommit(input.agentId);
       const current = await deps.agentSkillsRepo.listSkills(input.agentId);
       return upsertSkillRef(
@@ -392,6 +393,7 @@ export function createSkillsService(deps: SkillsServiceDeps): SkillsService {
         source: input.source,
         name: input.name,
       });
+      await deps.runtimeMutator.bump(input.agentId, []);
       await deps.runtimeMutator.enqueueAfterCommit(input.agentId);
       const current = await deps.agentSkillsRepo.listSkills(input.agentId);
       return removeSkillRef(current, {
