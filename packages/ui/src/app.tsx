@@ -13,6 +13,7 @@ import { AgentEgressView } from "./modules/egress-rules/views/agent-egress-view.
 import { ChatView } from "./modules/sessions/views/chat-view.js";
 import { ProvidersView } from "./modules/settings/views/providers-view.js";
 import { SettingsView } from "./modules/settings/views/settings-view.js";
+import { TermsView } from "./modules/terms/views/terms-view.js";
 import { useStore } from "./store.js";
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
         useStore.setState({ view: "connections" });
       else if (path === "/settings") useStore.setState({ view: "settings" });
       else if (path === "/inbox") useStore.setState({ view: "inbox" });
+      else if (path === "/terms") useStore.setState({ view: "terms" });
       else if (path.startsWith("/agents/") && path.endsWith("/egress")) {
         const id = decodeURIComponent(
           path.slice("/agents/".length, -"/egress".length),
@@ -96,6 +98,14 @@ export default function App() {
         <DialogOverlay />
         <ToastOverlay />
         <ConnectionBanner />
+      </>
+    );
+
+  if (view === "terms")
+    return (
+      <>
+        <TermsView />
+        <ToastOverlay />
       </>
     );
 

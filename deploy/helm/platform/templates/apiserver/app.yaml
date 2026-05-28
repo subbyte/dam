@@ -249,6 +249,10 @@ spec:
             - name: BRAND_ICON_SVG
               value: {{ .Values.brand.icon | quote }}
             {{- end }}
+            - name: TERMS_VERSION
+              value: {{ .Values.terms.version | quote }}
+            - name: TERMS_TEXT
+              value: {{ .Values.terms.text | quote }}
           volumeMounts:
             - name: trusted-hosts
               mountPath: /etc/platform/trusted-hosts

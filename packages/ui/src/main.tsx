@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 
 import { initAuth } from "./auth.js";
 import { applyBrand, loadBrand } from "./brand.js";
+import { preflightTermsGate } from "./modules/terms/lib/preflight.js";
 import { queryClient } from "./query-client.js";
 
 async function main() {
@@ -15,6 +16,8 @@ async function main() {
   // fetch falls back to the bundled defaults — login still works.
   const [user] = await Promise.all([initAuth(), loadBrand().then(applyBrand)]);
   if (!user) return; // Redirecting to Keycloak, don't render
+
+  if (!(await preflightTermsGate())) return;
 
   const { default: App } = await import("./app.js");
   createRoot(document.getElementById("root")!).render(
