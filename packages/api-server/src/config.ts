@@ -1,14 +1,10 @@
 import { brandSchema } from "api-server-api";
 import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
-import { isValidAppSlug } from "./modules/connections/infrastructure/oauth-apps.js";
 
-// Admin-default GitHub App slugs come from Helm values
-// (`apiServer.oauthAppDefaults.{github,githubEnterprise}.appSlug`). Treat
-// empty string as unset so operators can leave the value blank in
-// values.yaml; reject anything else that GitHub itself wouldn't accept,
-// so a typo crashes the api-server pod at startup with a clear error
-// rather than surfacing as a 400 the next time someone tries to connect.
+function isValidAppSlug(s: string): boolean {
+  return s.length >= 1 && s.length <= 39 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(s);
+}
 const adminAppSlugSchema = z
   .string()
   .nullable()
@@ -79,8 +75,6 @@ const configSchema = z.object({
   // serve every user on a deployment.
   defaultGithubClientId: z.string().nullable().default(null),
   defaultGithubClientSecret: z.string().nullable().default(null),
-  // GitHub App slug — only set when the platform-default app is a GitHub
-  // App (not an OAuth App). Drives the post-authorization install prompt.
   defaultGithubAppSlug: adminAppSlugSchema,
   defaultGithubEnterpriseHost: z.string().nullable().default(null),
   defaultGithubEnterpriseClientId: z.string().nullable().default(null),

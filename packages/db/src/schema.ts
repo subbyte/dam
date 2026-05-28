@@ -9,6 +9,7 @@ import {
   primaryKey,
   timestamp,
   boolean,
+  bigint,
 } from "drizzle-orm/pg-core";
 
 export const sessionModeEnum = pgEnum("session_mode", ["chat", "terminal"]);
@@ -273,6 +274,12 @@ export const agents = pgTable(
       .defaultNow()
       .notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    runtimeProtocolVersion: text("runtime_protocol_version"),
+    runtimeCapabilities: jsonb("runtime_capabilities"),
+    runtimeLastHelloAt: timestamp("runtime_last_hello_at", {
+      withTimezone: true,
+    }),
+    runtimeAgentVersion: text("runtime_agent_version"),
   },
   (table) => [index("agents_owner_idx").on(table.ownerSub)],
 );
@@ -292,4 +299,115 @@ export const agentSkillPublishes = pgTable(
       .notNull(),
   },
   (table) => [index("agent_skill_publishes_agent_idx").on(table.agentId)],
+);
+
+export const connections = pgTable(
+  "connections",
+  {
+    id: text("id").primaryKey(),
+    owner: text("owner").notNull(),
+    templateId: text("template_id").notNull(),
+    name: text("name").notNull(),
+    inputs: jsonb("inputs").notNull(),
+    auth: jsonb("auth").notNull(),
+    contributions: jsonb("contributions").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("connections_owner_idx").on(table.owner)],
+);
+
+export const connectionGrants = pgTable(
+  "connection_grants",
+  {
+    connectionId: text("connection_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.connectionId, table.agentId] }),
+    index("connection_grants_agent_idx").on(table.agentId),
+  ],
+);
+
+export const runtimeStateOutbox = pgTable(
+  "runtime_state_outbox",
+  {
+    agentId: text("agent_id").primaryKey(),
+    version: bigint("version", { mode: "number" }).notNull().default(0),
+    lastEnqueuedAt: timestamp("last_enqueued_at", {
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    lastAppliedVersion: bigint("last_applied_version", { mode: "number" })
+      .notNull()
+      .default(0),
+    lastAppliedHash: text("last_applied_hash"),
+    lastAppliedAt: timestamp("last_applied_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("runtime_state_outbox_stale_idx")
+      .on(table.lastEnqueuedAt)
+      .where(
+        sql`${table.lastAppliedAt} IS NULL OR ${table.lastEnqueuedAt} > ${table.lastAppliedAt}`,
+      ),
+  ],
+);
+
+export const runtimeEvents = pgTable(
+  "runtime_events",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id").notNull(),
+    kind: text("kind").notNull(),
+    payload: jsonb("payload").notNull(),
+    version: bigint("version", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("runtime_events_agent_pending_idx")
+      .on(table.agentId, table.version)
+      .where(sql`${table.dispatchedAt} IS NULL`),
+    index("runtime_events_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.dispatchedAt} IS NULL`),
+  ],
+);
+
+export const schedules = pgTable(
+  "schedules",
+  {
+    id: text("id").primaryKey(),
+    agentId: text("agent_id").notNull(),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    spec: jsonb("spec").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    nextRun: timestamp("next_run", { withTimezone: true }),
+    lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    lastFiredResult: text("last_fired_result"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("schedules_agent_owner_idx").on(table.agentId, table.owner),
+    index("schedules_enabled_idx")
+      .on(table.id)
+      .where(sql`${table.enabled} = true`),
+  ],
 );
