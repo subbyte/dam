@@ -203,6 +203,40 @@ keycloak:
   extraRedirectUris: []
   extraWebOrigins: []
 
+  # -- Event logging. Login + admin events are emitted to stdout via the
+  # built-in `jboss-logging` event listener so they ride the cluster log
+  # pipeline to whatever external log service is collecting pod logs.
+  #
+  # Login events are NOT persisted to the Keycloak DB (eventsEnabled: false
+  # in the realm import) — pod logs are the source of truth. Admin-event
+  # metadata IS persisted (low volume), but request-body detail is NOT
+  # (adminEventsDetailsEnabled: false in the realm import): those bodies can
+  # carry plaintext credentials on user-create/update and Keycloak keeps
+  # them indefinitely (no built-in expiration), while the log pipeline is
+  # the audit source of truth regardless. Set `adminEventsEnabled: false`
+  # in the realm import to stop admin events firing on the listener too.
+  #
+  # The listener emits successes at `debug` and errors at `warn` by
+  # default. We raise success-level to `info` so successful logins appear
+  # under the default root log level without touching log categories.
+  # See https://www.keycloak.org/server/all-provider-config (search for
+  # `spi-events-listener-jboss-logging`).
+  events:
+    # -- Log level for successful auth / admin events.
+    successLevel: "info"
+    # -- Log level for error events (LOGIN_ERROR, etc.).
+    errorLevel: "warn"
+
+  # -- Keycloak logging output.
+  log:
+    # -- Console output format. Only `default` and `json` are valid;
+    # Keycloak rejects any other value at startup. `default` is
+    # human-readable plain text; `json` is structured one-record-per-line,
+    # friendlier for external log aggregators (Loki / ELK / Datadog).
+    # Local dev overrides this to `default` in `values-local.yaml` for
+    # readable `kubectl logs`.
+    consoleOutput: "json"
+
   # -- Test user bootstrapped via realm import.
   # DISABLED by default — production deployments must not ship a known credential.
   # Local dev and e2e tests (via values-local.yaml) enable it.
