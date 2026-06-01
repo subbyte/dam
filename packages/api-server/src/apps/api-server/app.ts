@@ -580,6 +580,7 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
       readTemplateSpec,
       presetSeeder,
       cleanupHooks: agentCleanupHooks,
+      runtimeMutator,
     });
     const { schedules, isOwnedSchedule } = composeSchedulesForOwner({
       boot: schedulesBoot,
