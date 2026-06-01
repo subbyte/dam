@@ -44,7 +44,14 @@ backend = "aqua:helm/helm"
 [[tools.java]]
 version = "21.0.2"
 backend = "core:java"
-"platforms.macos-arm64" = { checksum = "sha256:b3d588e16ec1e0ef9805d8a696591bd518a5cea62567da8f53b5ce32d11d22e4", url = "https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_macos-aarch64_bin.tar.gz"}
+
+[tools.java."platforms.linux-arm64"]
+checksum = "sha256:08db1392a48d4eb5ea5315cf8f18b89dbaf36cda663ba882cf03c704c9257ec2"
+url = "https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_linux-aarch64_bin.tar.gz"
+
+[tools.java."platforms.macos-arm64"]
+checksum = "sha256:b3d588e16ec1e0ef9805d8a696591bd518a5cea62567da8f53b5ce32d11d22e4"
+url = "https://download.java.net/java/GA/jdk21.0.2/f2283984656d49d69e91c558476027ac/13/GPL/openjdk-21.0.2_macos-aarch64_bin.tar.gz"
 
 [[tools.kubeconform]]
 version = "0.7.0"
@@ -60,23 +67,58 @@ backend = "aqua:yannh/kubeconform"
 [[tools.lima]]
 version = "2.1.0"
 backend = "aqua:lima-vm/lima"
-"platforms.linux-arm64" = { checksum = "sha256:8b806c81f38ad7ea8104f196b414e243726cad1dfa6aa52843608d55df8c5290", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-aarch64.tar.gz"}
-"platforms.linux-arm64-musl" = { checksum = "sha256:8b806c81f38ad7ea8104f196b414e243726cad1dfa6aa52843608d55df8c5290", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-aarch64.tar.gz"}
-"platforms.linux-x64" = { checksum = "sha256:9e52c605790649aceac1f894eb2bb7cdb45897257faafb54ff30ce6a576bebfa", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-x86_64.tar.gz"}
-"platforms.linux-x64-musl" = { checksum = "sha256:9e52c605790649aceac1f894eb2bb7cdb45897257faafb54ff30ce6a576bebfa", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-x86_64.tar.gz"}
-"platforms.macos-arm64" = { checksum = "sha256:1da852bce2f98b8310fb53e5047e08ff798880ddf9ae4b3161d4de4e73777b34", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Darwin-arm64.tar.gz"}
-"platforms.macos-x64" = { checksum = "sha256:529d6dad275bded4bd1fb17c6df4d22f11917712aab1693f5bc43286b5e78824", url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Darwin-x86_64.tar.gz"}
+
+[tools.lima."platforms.linux-arm64"]
+checksum = "sha256:8b806c81f38ad7ea8104f196b414e243726cad1dfa6aa52843608d55df8c5290"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-aarch64.tar.gz"
+provenance = "github-attestations"
+
+[tools.lima."platforms.linux-arm64-musl"]
+checksum = "sha256:8b806c81f38ad7ea8104f196b414e243726cad1dfa6aa52843608d55df8c5290"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-aarch64.tar.gz"
+
+[tools.lima."platforms.linux-x64"]
+checksum = "sha256:9e52c605790649aceac1f894eb2bb7cdb45897257faafb54ff30ce6a576bebfa"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-x86_64.tar.gz"
+
+[tools.lima."platforms.linux-x64-musl"]
+checksum = "sha256:9e52c605790649aceac1f894eb2bb7cdb45897257faafb54ff30ce6a576bebfa"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Linux-x86_64.tar.gz"
+
+[tools.lima."platforms.macos-arm64"]
+checksum = "sha256:1da852bce2f98b8310fb53e5047e08ff798880ddf9ae4b3161d4de4e73777b34"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Darwin-arm64.tar.gz"
+
+[tools.lima."platforms.macos-x64"]
+checksum = "sha256:529d6dad275bded4bd1fb17c6df4d22f11917712aab1693f5bc43286b5e78824"
+url = "https://github.com/lima-vm/lima/releases/download/v2.1.0/lima-2.1.0-Darwin-x86_64.tar.gz"
 
 [[tools.maven]]
 version = "3.9.16"
 backend = "aqua:apache/maven"
-"platforms.linux-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.linux-arm64-musl" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.linux-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.linux-x64-musl" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.macos-arm64" = { checksum = "blake3:edb2f6835f26d5b83b16d5d9bff5a1c32035c583e76cf2a208897386f5774256", url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.macos-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
-"platforms.windows-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"}
+
+[tools.maven."platforms.linux-arm64"]
+checksum = "blake3:edb2f6835f26d5b83b16d5d9bff5a1c32035c583e76cf2a208897386f5774256"
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.linux-arm64-musl"]
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.linux-x64"]
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.linux-x64-musl"]
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.macos-arm64"]
+checksum = "blake3:edb2f6835f26d5b83b16d5d9bff5a1c32035c583e76cf2a208897386f5774256"
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.macos-x64"]
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+
+[tools.maven."platforms.windows-x64"]
+url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
 
 [[tools.node]]
 version = "24.14.1"
