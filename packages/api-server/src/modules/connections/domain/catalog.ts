@@ -141,6 +141,7 @@ function github(creds?: OAuthClientCredentials): OAuthConnectionTemplate {
     description: "Read + write GitHub repos, issues, PRs.",
     iconSlug: "github",
     authKind: "oauth",
+    setupUrl: "https://github.com/settings/developers",
     ...(creds?.clientId ? { clientId: creds.clientId } : {}),
     ...(creds?.clientSecret ? { clientSecret: creds.clientSecret } : {}),
     ...(creds?.appSlug ? { extras: { appSlug: creds.appSlug } } : {}),
@@ -208,6 +209,8 @@ function spotify(creds?: OAuthClientCredentials): OAuthConnectionTemplate {
     description: "Read library + control playback on your behalf.",
     iconSlug: "spotify",
     authKind: "oauth",
+    setupUrl: "https://developer.spotify.com/dashboard",
+    localhostCallbackAlias: "127.0.0.1",
     ...(creds?.clientId ? { clientId: creds.clientId } : {}),
     ...(creds?.clientSecret ? { clientSecret: creds.clientSecret } : {}),
     authorizationUrl: "https://accounts.spotify.com/authorize",
@@ -219,7 +222,14 @@ function spotify(creds?: OAuthClientCredentials): OAuthConnectionTemplate {
       "user-modify-playback-state",
       "user-read-playback-state",
     ],
-    contributions: [{ kind: "egress-allow", host: "api.spotify.com" }],
+    contributions: [
+      {
+        kind: "egress-inject",
+        host: "api.spotify.com",
+        headerName: "Authorization",
+        valueFormat: "Bearer {value}",
+      },
+    ],
   };
 }
 
@@ -229,6 +239,7 @@ interface GoogleServiceDef {
   description: string;
   scopes: string[];
   hosts: { host: string; pathPattern?: string }[];
+  iconSlug?: string;
 }
 
 const GOOGLE_BASELINE_SCOPES = ["openid", "email", "profile"];
@@ -237,6 +248,7 @@ const GOOGLE_SERVICES: GoogleServiceDef[] = [
   {
     id: "google-gmail",
     name: "Gmail",
+    iconSlug: "gmail",
     description: "Read, compose, and send emails via Gmail.",
     scopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
@@ -308,6 +320,18 @@ const GOOGLE_SERVICES: GoogleServiceDef[] = [
     description: "Read, create, and edit forms and responses.",
     scopes: ["https://www.googleapis.com/auth/forms.body"],
     hosts: [{ host: "forms.googleapis.com" }],
+  },
+  {
+    id: "google-health",
+    name: "Google Health",
+    description:
+      "Access activity, sleep, and health metrics from Fitbit and connected devices.",
+    scopes: [
+      "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+      "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
+      "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+    ],
+    hosts: [{ host: "health.googleapis.com" }],
   },
   {
     id: "google-meet",
@@ -383,8 +407,10 @@ function googleService(
     category: "app",
     isCustom: false,
     description: def.description,
-    iconSlug: def.id,
+    iconSlug: def.iconSlug ?? def.id,
     authKind: "oauth",
+    credentialFamily: "google",
+    setupUrl: "https://console.cloud.google.com/apis/credentials",
     ...(creds?.clientId ? { clientId: creds.clientId } : {}),
     ...(creds?.clientSecret ? { clientSecret: creds.clientSecret } : {}),
     authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -392,9 +418,11 @@ function googleService(
     scopes: [...GOOGLE_BASELINE_SCOPES, ...def.scopes],
     extraAuthParams: { access_type: "offline", prompt: "consent" },
     contributions: def.hosts.map((h) => ({
-      kind: "egress-allow",
+      kind: "egress-inject",
       host: h.host,
       ...(h.pathPattern ? { pathPattern: h.pathPattern } : {}),
+      headerName: "Authorization",
+      valueFormat: "Bearer {value}",
     })),
   };
 }
@@ -408,6 +436,8 @@ const CUSTOM_HEADER: HeaderConnectionTemplate = {
     "Inject a header (API key, PAT, bearer) on outbound calls to a host.",
   iconSlug: "key",
   authKind: "header",
+  headerName: "Authorization",
+  valueFormat: "Bearer {value}",
   contributions: [],
 };
 
