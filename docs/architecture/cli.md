@@ -1,6 +1,6 @@
 # CLI
 
-Last verified: 2026-06-01
+Last verified: 2026-06-02
 
 ## Motivated by
 
@@ -9,10 +9,11 @@ Last verified: 2026-06-01
 - [#73 — Import local project context into agent workspace](https://github.com/dam-agents/dam/issues/73) — the `dam import` verb that uploads local files and folders into an Agent.
 - [#254 — Granular file ops over the agent-runtime proxy](https://github.com/dam-agents/dam/issues/254) — the `dam file` group (`get`, `put`, `list`) for single-file workspace operations.
 - [ADR-046 — Eliminate Instance, collapse into Agent](../adrs/046-eliminate-instance.md) — the CLI addresses Agents (not Instances); a single `dam agent` group covers the lifecycle.
+- [ADR-035 — Unified HITL UX](../adrs/035-unified-hitl-ux.md) — the per-Agent network access pre-approvals that the `dam network` group lists and mutates ([#345](https://github.com/dam-agents/dam/issues/345), a P0 sub-issue of [#329](https://github.com/dam-agents/dam/issues/329)).
 
 ## Overview
 
-The `dam` CLI is a TypeScript Node package that users install on their own machine and point at a configured Platform deployment. It never runs inside the cluster. The current surface: `dam --version`, `dam --help` (built-in flags); `dam config set`; `dam ping`; `dam version`; the `dam auth` group (`login`, `logout`, `status`); the `dam agent` group (`list` [default], `get`, `create`, `create-interactive`, `delete`, `restart`); `dam chat`; `dam session list`; `dam template list`; `dam import`; and the `dam file` group (`get`, `put`, `list`). Command groups are singular to align with `gh`, `git`, and `docker` conventions.
+The `dam` CLI is a TypeScript Node package that users install on their own machine and point at a configured Platform deployment. It never runs inside the cluster. The current surface: `dam --version`, `dam --help` (built-in flags); `dam config set`; `dam ping`; `dam version`; the `dam auth` group (`login`, `logout`, `status`); the `dam agent` group (`list` [default], `get`, `create`, `create-interactive`, `delete`, `restart`); `dam chat`; `dam session list`; `dam template list`; `dam import`; the `dam file` group (`get`, `put`, `list`); and the `dam network` group (`list`, `create`, `update`, `revoke`, `preset`, `apply-preset`, `trusted-hosts`). Command groups are singular to align with `gh`, `git`, and `docker` conventions.
 
 The CLI shares types directly with the api-server via a shared contract package, so server-side type changes reach the CLI without codegen or manual mirroring. Most routes are reached through plain HTTP calls against the api-server's tRPC endpoints; the `dam chat` verb additionally opens a WebSocket to the terminal relay for the interactive PTY session. The auth probes (`/api/auth/config`, OIDC discovery) stay as raw `fetch` because they are not tRPC.
 
@@ -143,3 +144,26 @@ The chat module composes a per-host `SessionsPort` backed by a small ACP client 
 - **Caps and exclusions** — the per-file size cap is enforced server-side in `agent-runtime`'s `FilesService` and surfaces on both `read` and `upload` as `PAYLOAD_TOO_LARGE` (single source of truth — the CLI doesn't duplicate the constant). Excluded basenames (`.git`, `.npm`, `.triggers`, `.claude.json`, `.initialized`, `node_modules`, `.DS_Store`) are invisible in `list` and refused on `put`. Symmetric to `dam import`'s exclusions.
 - **No service layer** — each verb is one tRPC call; the action handler classifies inline rather than introducing a port, mirroring `dam import`.
 - **Out of scope (v1)** — recursive directory download (combine `dam file list | xargs dam file get`), streaming for files > 10 MB, `dam file rm` / `mv` / `mkdir`, globs in `<remote-path>`. Each lands when a concrete use case appears.
+
+## Network access
+
+`dam network` manages per-Agent outbound-host rules — the pre-approvals that let an Agent reach external services without round-tripping the inbox ([ADR-035](../adrs/035-unified-hitl-ux.md)). The CLI is a thin wrapper around the `egressRules.*` tRPC procedures, at parity with the per-agent network access editor in the UI.
+
+Seven commands, agent-scoped ones positional-first on the agent ref to match the existing verb convention:
+
+- `dam network list <agent>` — six-column table sorted by `(host, method, pathPattern)`; `--json` emits `EgressRuleView[]`.
+- `dam network preset <agent>` — current effective preset (`none` / `trusted` / `all`).
+- `dam network create <agent> --host <h> [--method] [--path] [--verdict]` — adds a manual rule. `--method` and `--path` default to `*` (the L4 host-only rule); `--verdict` defaults to `allow`.
+- `dam network update <rule-id> [--method] [--path] [--verdict]` — partial update; at least one flag is required. Flips `source` to `manual` server-side.
+- `dam network revoke <rule-id>` — deletes the rule. Idempotent — unknown IDs exit 0.
+- `dam network apply-preset <agent> --preset <name>` — bulk-seeds; replaces existing `preset:*` rows; preserves `manual` and `connection:*` rows.
+- `dam network trusted-hosts` — the platform-wide hosts seeded by the `trusted` preset.
+
+Two pieces of non-obvious behavior the CLI surfaces:
+
+- **Path/method-specific rules require L7 enforcement.** When `create` or `update` produces a rule with non-wildcard method or path, the gateway has to re-MITM the host, which rolls the Agent pod (~5–15s). The CLI prompts on TTY; `--yes` bypasses; non-TTY without `--yes` exits `EXIT_INVALID_INPUT` (2). The check fires on user-passed flags only — false positives for already-L7 rules are accepted in preference to fetching the existing row.
+- **Preset `all` is a development escape hatch.** `apply-preset --preset all` confirms before applying (mirrors the UI's `window.confirm`). Every preset apply prints an explanatory line to stderr that manual and connection-derived rules are preserved.
+
+`update` against an unknown rule ID exits `EXIT_RULE_NOT_FOUND` (6) — the contract change in `egress-rules-service.ts` converts the plain `Error("egress rule not found")` to `TRPCError({ code: "NOT_FOUND" })` so the CLI can classify the error via `data.code`.
+
+The `source` field is rendered via the shared `formatEgressRuleSource` helper in [packages/api-server-api/src/modules/egress-rules/format.ts](../../packages/api-server-api/src/modules/egress-rules/format.ts) so the CLI and UI use identical labels.
