@@ -97,10 +97,7 @@ COPY packages/platform-base/working-dir/.claude/settings.json /app/working-dir/.
 # seed cp -rn ... $HOME doesn't shadow it on the user's PV. Per-image
 # overrides are COPY'd later in derived Dockerfiles.
 COPY packages/platform-base/runtime-manifest.yaml /app/runtime-manifest.yaml
-RUN mkdir -p /app/working-dir/.claude /app/working-dir/.pi/agent \
-    && ln -s ../.agents/skills /app/working-dir/.claude/skills \
-    && ln -s ../../.agents/skills /app/working-dir/.pi/agent/skills \
-    && chown -R 65532:0 /app
+RUN chown -R 65532:0 /app
 
 # Claude Code 2.x changed the managed-settings.json schema: `allowedMcpServers`
 # is no longer a `string[]` of server names — the array entries are expected
