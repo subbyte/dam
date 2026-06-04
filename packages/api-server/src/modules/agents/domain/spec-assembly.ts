@@ -1,5 +1,4 @@
 import type { TemplateSpec } from "api-server-api";
-import { SPEC_VERSION } from "api-server-api";
 
 export function assembleSpecFromTemplate(
   name: string,
@@ -8,7 +7,6 @@ export function assembleSpecFromTemplate(
 ): Record<string, unknown> {
   return {
     name,
-    version: SPEC_VERSION,
     image: tmplSpec.image,
     // `??` not `||`: a cleared ("") description stays empty; only an omitted
     // (undefined) one falls back to the template's default.
@@ -35,7 +33,6 @@ export function assembleSpecFromImage(
 ): Record<string, unknown> {
   return {
     name,
-    version: SPEC_VERSION,
     image: opts.image,
     description: opts.description,
   };
