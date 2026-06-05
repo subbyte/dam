@@ -176,6 +176,14 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
           ? { appSlug: config.defaultGithubEnterpriseAppSlug }
           : {}),
       },
+      ...(config.defaultSlackClientId && config.defaultSlackClientSecret
+        ? {
+            slack: {
+              clientId: config.defaultSlackClientId,
+              clientSecret: config.defaultSlackClientSecret,
+            },
+          }
+        : {}),
     },
   });
   connectionsBoot.refreshLoop.start();
