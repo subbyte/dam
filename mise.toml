@@ -16,7 +16,7 @@ java = "21"
 maven = "latest"
 
 # Kubernetes
-helm = "latest"
+helm = "4.2.0"
 kubeconform = "latest"
 "lima" = "2"
 
