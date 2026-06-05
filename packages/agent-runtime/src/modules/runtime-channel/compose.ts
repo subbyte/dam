@@ -1,7 +1,7 @@
 import { join } from "node:path";
+import { eventKind } from "agent-runtime-api";
 import type {
   ContributionKind,
-  EventKind,
   Plugin,
   RuntimeChannelService,
 } from "agent-runtime-api";
@@ -15,6 +15,7 @@ import { createPluginRegistry } from "./infrastructure/plugin-registry.js";
 import { createExtensionLoader } from "./infrastructure/extension-loader.js";
 import { createHarnessClient, type HarnessClient } from "./harness-client.js";
 import { createRuntimeChannelService } from "./service.js";
+import { createSeedWorkspace } from "./seed-workspace.js";
 import { runHello } from "./hello.js";
 import type { TriggerSessionDriver } from "../acp/index.js";
 
@@ -27,6 +28,7 @@ export interface RuntimeChannelComposition {
 export interface ComposeRuntimeChannelOpts {
   manifestPath: string;
   agentHome: string;
+  workDir: string;
   stateBackend: DocumentStoreBackend;
   apiServerUrl: string;
   agentId: string;
@@ -65,6 +67,8 @@ export async function composeRuntimeChannel(
     stateStore: triggerStateStore,
   });
 
+  const seedWorkspace = createSeedWorkspace({ workDir: opts.workDir, log });
+
   const harnessClient: HarnessClient = createHarnessClient({
     apiServerUrl: opts.apiServerUrl,
     agentId: opts.agentId,
@@ -73,12 +77,15 @@ export async function composeRuntimeChannel(
   const contributionKinds = Object.keys(
     manifest.drivers,
   ) as readonly ContributionKind[];
-  const eventKinds: readonly EventKind[] = ["trigger", "schedule-reset"];
+  // Every event kind has a built-in handler (see event-loop invokeHandler), so
+  // the agent advertises the whole set — single-sourced from the schema enum.
+  const eventKinds = eventKind.options;
 
   const service = createRuntimeChannelService({
     dispatcher,
     stateStore,
     triggerImpl,
+    seedWorkspace,
     log,
   });
 

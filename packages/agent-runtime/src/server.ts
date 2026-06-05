@@ -65,6 +65,7 @@ const runtimeChannel = await composeRuntimeChannel({
     ? join(__dir, "../../platform-base/runtime-manifest.yaml")
     : join(__dir, "../runtime-manifest.yaml"),
   agentHome: homeDir,
+  workDir,
   stateBackend,
   apiServerUrl: config.API_SERVER_URL,
   agentId: process.env.PLATFORM_AGENT_ID ?? process.env.HOSTNAME ?? "unknown",

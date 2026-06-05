@@ -271,7 +271,21 @@ export function createAgentsService(deps: {
       }
 
       // Bump so the built-in platform connection ships from creation (#421).
-      await deps.runtimeMutator.bump(infra.id, []);
+      // When a git repo was chosen, also enqueue a one-shot `workspace-seed`
+      // event — the agent clones it into the work dir on its first apply.
+      await deps.runtimeMutator.bump(
+        infra.id,
+        input.gitRepo
+          ? [
+              {
+                id: `workspace-seed:${infra.id}:${Date.now()}`,
+                kind: "workspace-seed",
+                payload: { url: input.gitRepo.url, ref: input.gitRepo.ref },
+                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              },
+            ]
+          : [],
+      );
 
       const agent = assembleAgent(infra, [], emails, []);
       // Records the agent's initial security posture (preset, secret ref,

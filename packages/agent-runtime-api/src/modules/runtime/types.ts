@@ -10,7 +10,11 @@ export const contributionKind = z.enum([
 ]);
 export type ContributionKind = z.infer<typeof contributionKind>;
 
-export const eventKind = z.enum(["trigger", "schedule-reset"]);
+export const eventKind = z.enum([
+  "trigger",
+  "schedule-reset",
+  "workspace-seed",
+]);
 export type EventKind = z.infer<typeof eventKind>;
 
 export const mergeMode = z.enum([
@@ -108,9 +112,30 @@ export const scheduleResetEvent = z.object({
   payload: scheduleResetEventPayload,
 });
 
+// One-shot seed of the agent's working directory from a public git repo:
+// fire once at create, clone, forget. Not reconciled state — the clone is the
+// user's mutable workspace, which the platform never re-asserts or removes.
+export const workspaceSeedEventPayload = z.object({
+  url: z.string().min(1),
+  /** Branch or tag to clone; omitted = the repo's default branch. */
+  ref: z.string().min(1).optional(),
+});
+export type WorkspaceSeedEventPayload = z.infer<
+  typeof workspaceSeedEventPayload
+>;
+
+export const workspaceSeedEvent = z.object({
+  id: z.string().min(1),
+  kind: z.literal("workspace-seed"),
+  version: z.number().int().nonnegative(),
+  expiresAt: z.string().datetime({ offset: true }),
+  payload: workspaceSeedEventPayload,
+});
+
 export const event = z.discriminatedUnion("kind", [
   triggerEvent,
   scheduleResetEvent,
+  workspaceSeedEvent,
 ]);
 export type Event = z.infer<typeof event>;
 
