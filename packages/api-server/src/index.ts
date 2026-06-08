@@ -375,6 +375,18 @@ schedulesBoot.runner.restoreAll().catch((err) => {
   );
 });
 
+try {
+  const cleared = await agentsRepo.clearActiveSessions();
+  if (cleared)
+    process.stderr.write(
+      `[boot] cleared ${cleared} stale active-session pin(s)\n`,
+    );
+} catch (err) {
+  process.stderr.write(
+    `[boot] clearActiveSessions failed: ${(err as Error).message}\n`,
+  );
+}
+
 const { server: apiServer } = startApiServerApp({
   config,
   api,

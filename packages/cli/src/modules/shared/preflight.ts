@@ -32,12 +32,21 @@ export async function resolveActiveHost(
     );
   }
 
+  return resolveHostFromConfig(deps, {
+    flag: opts.flag,
+    exitCodes: { runtimeFailure: opts.exitCodes.runtimeFailure },
+  });
+}
+
+export async function resolveHostFromConfig(
+  deps: { configService: ConfigService },
+  opts: { flag?: Partial<Config>; exitCodes: { runtimeFailure: number } },
+): Promise<string> {
   const cfg = await deps.configService.getResolved({ flag: opts.flag });
   if (!cfg.ok) {
     printConfigError(cfg.error);
     process.exit(opts.exitCodes.runtimeFailure);
   }
-
   return cfg.value.server;
 }
 

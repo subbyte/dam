@@ -46,6 +46,8 @@ import {
 } from "../../modules/channels/infrastructure/telegram-threads-repository.js";
 import { createAcpRelay } from "./acp-relay.js";
 import { createTerminalRelay } from "./terminal-relay.js";
+import { createSshRelay } from "./ssh-relay.js";
+import { createSessionPresence } from "./session-presence.js";
 import { createOAuthRoutes } from "./oauth.js";
 import { mountBrandIconRoutes } from "./brand-icon.js";
 import type { Config } from "../../config.js";
@@ -715,6 +717,8 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
     });
   });
 
+  const sessionPresence = createSessionPresence(agentsRepo);
+
   const acpRelay = createAcpRelay(
     config.namespace,
     agentsRepo,
@@ -725,9 +729,20 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
           .resolveIdentity(id)
           .then((r) => (r ? { ownerSub: r.owner, agentId: r.agentId } : null)),
     },
+    sessionPresence,
   );
 
-  const terminalRelay = createTerminalRelay(config.namespace, agentsRepo);
+  const terminalRelay = createTerminalRelay(
+    config.namespace,
+    agentsRepo,
+    sessionPresence,
+  );
+
+  const sshRelay = createSshRelay(
+    config.namespace,
+    agentsRepo,
+    sessionPresence,
+  );
 
   const server = serve({ fetch: app.fetch, port: config.port }, () => {
     process.stderr.write(
@@ -763,7 +778,7 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
   server.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const match = url.pathname.match(
-      /^\/api\/agents\/([^/]+)\/(acp|terminal)$/,
+      /^\/api\/agents\/([^/]+)\/(acp|terminal|ssh)$/,
     );
     if (!match) {
       socket.destroy();
@@ -773,7 +788,7 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
     // `relayKind` and `agentId` identify the target credentialed pod; the
     // token rides in the query string and must NEVER be logged (only the
     // pathname, which carries no secret).
-    const relayKind = match[2]!; // "acp" | "terminal"
+    const relayKind = match[2]!; // "acp" | "terminal" | "ssh"
     const agentId = decodeURIComponent(match[1]!);
     const fwd = req.headers["x-forwarded-for"];
     const sourceIp =
@@ -873,7 +888,8 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
       sourceIp,
       detail: { relay: relayKind },
     });
-    const relay = relayKind === "acp" ? acpRelay : terminalRelay;
+    const relays = { acp: acpRelay, ssh: sshRelay, terminal: terminalRelay };
+    const relay = relays[relayKind as keyof typeof relays];
     relay.handleUpgrade(req, socket, head, agentId);
   });
 
