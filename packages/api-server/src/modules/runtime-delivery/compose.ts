@@ -1,6 +1,7 @@
 import type { ConnectionOptions } from "bullmq";
 import type { Db } from "db";
 import type { DriverFailure, RuntimeDeliveryService } from "api-server-api";
+import { getLogger } from "../../core/logger.js";
 import {
   createOutboxRepo,
   createAgentsRuntimeRepo,
@@ -55,6 +56,7 @@ export interface RuntimeDeliveryComposition {
 export interface ContributionsStatus {
   settled: boolean;
   failures: DriverFailure[];
+  preparingWorkspace: boolean;
 }
 
 export interface ComposeRuntimeDeliveryOpts {
@@ -70,7 +72,8 @@ export interface ComposeRuntimeDeliveryOpts {
 export function composeRuntimeDelivery(
   opts: ComposeRuntimeDeliveryOpts,
 ): RuntimeDeliveryComposition {
-  const log = opts.log ?? ((m) => process.stderr.write(`[runtime] ${m}\n`));
+  // Via Pino so apply/sweep lines carry an ISO timestamp (#695).
+  const log = opts.log ?? ((m) => getLogger().info(`[runtime] ${m}`));
 
   const outboxRepo = createOutboxRepo(opts.db);
   const agentsRuntimeRepo = createAgentsRuntimeRepo(opts.db);
@@ -124,11 +127,16 @@ export function composeRuntimeDelivery(
     stateBuilder,
     builtin,
     async contributionsStatus(agentId): Promise<ContributionsStatus> {
-      const row = await outboxRepo.getRow(agentId);
-      if (!row) return { settled: true, failures: [] };
+      const [row, seeding] = await Promise.all([
+        outboxRepo.getRow(agentId),
+        outboxRepo.seedingAgentIds([agentId]),
+      ]);
+      const preparingWorkspace = seeding.has(agentId);
+      if (!row) return { settled: true, failures: [], preparingWorkspace };
       return {
         settled: row.lastSettledVersion >= row.version,
         failures: row.applyFailures,
+        preparingWorkspace,
       };
     },
 
@@ -137,18 +145,23 @@ export function composeRuntimeDelivery(
     ): Promise<Map<string, ContributionsStatus>> {
       const result = new Map<string, ContributionsStatus>();
       if (agentIds.length === 0) return result;
-      const rows = await outboxRepo.getRows(agentIds);
+      const [rows, seeding] = await Promise.all([
+        outboxRepo.getRows(agentIds),
+        outboxRepo.seedingAgentIds(agentIds),
+      ]);
       const byId = new Map(rows.map((r) => [r.agentId, r]));
       for (const id of agentIds) {
         const row = byId.get(id);
+        const preparingWorkspace = seeding.has(id);
         result.set(
           id,
           row
             ? {
                 settled: row.lastSettledVersion >= row.version,
                 failures: row.applyFailures,
+                preparingWorkspace,
               }
-            : { settled: true, failures: [] },
+            : { settled: true, failures: [], preparingWorkspace },
         );
       }
       return result;
