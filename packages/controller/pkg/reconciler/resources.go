@@ -45,6 +45,20 @@ const (
 	LabelRole   = "agent-platform.ai/role"
 	RoleAgent   = "agent"
 	RoleGateway = "gateway"
+
+	// LabelMount records the sanitized mount a persisted workspace PVC backs. Set
+	// on every persisted PVC (volumeClaimTemplate and claimed spare), so a PVC is
+	// addressed by (LabelAgent, LabelMount) rather than a reconstructed
+	// `<mount>-<agent>-0` name — a claimed spare keeps its generated name (#692).
+	LabelMount = "agent-platform.ai/mount"
+
+	// Warm-pool labels (#692). A spare carries LabelPool (canonical size = pool
+	// key) and, while unclaimed, LabelPoolAvailable="true" but NO LabelAgent — so
+	// the orphan sweep (lists by LabelAgent) skips it. On claim it gains
+	// LabelAgent + LabelMount and loses LabelPoolAvailable, becoming an ordinary
+	// agent PVC.
+	LabelPool          = "agent-platform.ai/pool"
+	LabelPoolAvailable = "agent-platform.ai/pool-available"
 )
 
 // annRollRev is an api-server-set annotation on the Agent that requests a
@@ -95,10 +109,7 @@ func BuildAgentStatefulSet(name string, agentSpec *types.AgentSpec, cfg *config.
 	if agentHome == "" {
 		agentHome = defaults.AgentHome
 	}
-	specMounts := agentSpec.Mounts
-	if len(specMounts) == 0 {
-		specMounts = configMountsToTypes(defaults.Mounts)
-	}
+	specMounts := resolveSpecMounts(agentSpec, defaults)
 	specEnv := agentSpec.Env
 	if len(specEnv) == 0 {
 		specEnv = configEnvToTypes(defaults.Env)
@@ -194,16 +205,7 @@ func BuildAgentStatefulSet(name string, agentSpec *types.AgentSpec, cfg *config.
 			Name: volName, MountPath: m.Path,
 		})
 		if m.Persist {
-			// Size precedence: per-mount > AgentSpec.StorageSize > chart default.
-			// All three sources are validated upstream (Config.Validate at startup
-			// for the chart default, ParseAgentSpec for the spec.yaml values).
-			storageSize := m.Size
-			if storageSize == "" {
-				storageSize = agentSpec.StorageSize
-			}
-			if storageSize == "" {
-				storageSize = defaults.StorageSize
-			}
+			storageSize := effectiveMountSize(m, agentSpec, defaults)
 			pvcSpec := corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.PersistentVolumeAccessMode(base.AccessMode)},
 				Resources: corev1.VolumeResourceRequirements{
@@ -217,7 +219,7 @@ func BuildAgentStatefulSet(name string, agentSpec *types.AgentSpec, cfg *config.
 			pvcs = append(pvcs, corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   volName,
-					Labels: map[string]string{LabelAgent: name},
+					Labels: map[string]string{LabelAgent: name, LabelMount: volName},
 				},
 				Spec: pvcSpec,
 			})
@@ -398,6 +400,59 @@ func BuildAgentStatefulSet(name string, agentSpec *types.AgentSpec, cfg *config.
 				Spec:       podSpec,
 			},
 		},
+	}
+}
+
+// resolveSpecMounts returns the agent's effective mount list: the AgentSpec's
+// own mounts, or the chart-wide default mounts when the spec omits them
+// (REPLACE semantics, matching the env/skill fallback). Shared by the
+// StatefulSet builder and the warm-pool claim path so the two never disagree
+// about which volumes an agent has.
+func resolveSpecMounts(agentSpec *types.AgentSpec, defaults config.AgentTemplateDefaults) []types.Mount {
+	if len(agentSpec.Mounts) > 0 {
+		return agentSpec.Mounts
+	}
+	return configMountsToTypes(defaults.Mounts)
+}
+
+// effectiveMountSize resolves a persisted mount's PVC size by the documented
+// precedence: per-mount override > AgentSpec.StorageSize > chart default. All
+// three are validated upstream (Config.Validate for the chart default,
+// ParseAgentSpec for spec.yaml values). Shared with the warm-pool claim path
+// so a mount is matched to a pool by the exact size the StatefulSet renders.
+func effectiveMountSize(m types.Mount, agentSpec *types.AgentSpec, defaults config.AgentTemplateDefaults) string {
+	if m.Size != "" {
+		return m.Size
+	}
+	if agentSpec.StorageSize != "" {
+		return agentSpec.StorageSize
+	}
+	return defaults.StorageSize
+}
+
+// applyPoolClaims swaps the named mounts from a volumeClaimTemplate to an
+// explicit pod Volume referencing the claimed PVC by name (the shape forks use).
+// The container's volumeMount already targets the mount name. No-op for an empty
+// map, so unclaimed agents render exactly as before.
+func applyPoolClaims(ss *appsv1.StatefulSet, claims map[string]string) {
+	if len(claims) == 0 {
+		return
+	}
+	kept := ss.Spec.VolumeClaimTemplates[:0]
+	for _, vct := range ss.Spec.VolumeClaimTemplates {
+		if _, claimed := claims[vct.Name]; claimed {
+			continue
+		}
+		kept = append(kept, vct)
+	}
+	ss.Spec.VolumeClaimTemplates = kept
+	for mountName, pvcName := range claims {
+		ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+			Name: mountName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName},
+			},
+		})
 	}
 }
 
