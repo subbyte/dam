@@ -30,7 +30,7 @@ import { ImportInProgressBadge } from "../../files/components/import-in-progress
 import { useFileTree } from "../../files/hooks/use-file-tree.js";
 import { prefetchSchedules } from "../../schedules/api/queries.js";
 import { setSessionMode as applySessionMode } from "../api/acp-session-ops.js";
-import { acpSessionsKeys } from "../api/queries.js";
+import { acpSessionsKeys, optimisticInsertSession } from "../api/queries.js";
 import { ChatInput } from "../components/chat-input.js";
 import { ConfigurationPanel } from "../components/configuration-panel.js";
 import { LogPanel } from "../components/log-panel.js";
@@ -200,6 +200,7 @@ export function ChatView() {
       ephemeralTerminalIdRef.current = null;
       resetSession();
       setSessionMode(SessionMode.Chat);
+      queryClient.invalidateQueries({ queryKey: acpSessionsKeys.all });
       requestAnimationFrame(() => textareaRef.current?.focus());
       return;
     }
@@ -395,6 +396,15 @@ export function ChatView() {
             onConnected={() => {
               terminalFreshRef.current = false;
               setTerminalPaused(false);
+            }}
+            onFirstSubmit={() => {
+              // Show the first message optimistically, then refetch so the poll reconciles it.
+              optimisticInsertSession(
+                selectedAgent,
+                sessionId,
+                SessionMode.Terminal,
+              );
+              queryClient.invalidateQueries({ queryKey: acpSessionsKeys.all });
             }}
           />
         ) : (
