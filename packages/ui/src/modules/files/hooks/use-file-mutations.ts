@@ -11,6 +11,8 @@ import {
   useFileUploadMutation,
   useFolderCreateMutation,
 } from "../api/queries.js";
+import { trackImport } from "../track-import.js";
+import { useIsImporting } from "./use-is-importing.js";
 
 export type FileEntryKind = "file" | "dir";
 
@@ -68,6 +70,8 @@ export function useFileMutations(agentId: string | null) {
   const renameMutation = useFileRenameMutation(agentId);
   const deleteMutation = useFileDeleteMutation(agentId);
   const uploadMutation = useFileUploadMutation(agentId);
+
+  const isUploading = useIsImporting(agentId);
 
   const createEntry = useCallback(
     async ({ kind, dir, name }: CreateEntryInput) => {
@@ -209,39 +213,41 @@ export function useFileMutations(agentId: string | null) {
         }
       };
 
-      for (const file of list) {
-        if (file.size > MAX_UPLOAD_BYTES) {
-          emitToast({
-            kind: "error",
-            message: `${file.name} exceeds 10 MB — skipped`,
-          });
-          continue;
+      await trackImport(agentId, async () => {
+        for (const file of list) {
+          if (file.size > MAX_UPLOAD_BYTES) {
+            emitToast({
+              kind: "error",
+              message: `${file.name} exceeds 10 MB — skipped`,
+            });
+            continue;
+          }
+          const safe = sanitizeUploadName(file.name);
+          if (!safe) continue;
+          const path = `${prefix}${safe}`;
+          try {
+            const contentBase64 = await fileToBase64(file);
+            const contentType = file.type || undefined;
+            const written = await uploadOne(path, contentBase64, contentType);
+            if (written)
+              emitToast({ kind: "success", message: `Uploaded ${path}` });
+          } catch (err) {
+            emitToast({
+              kind: "error",
+              message: errorMessage(err, `Upload failed: ${path}`),
+            });
+          }
         }
-        const safe = sanitizeUploadName(file.name);
-        if (!safe) continue;
-        const path = `${prefix}${safe}`;
-        try {
-          const contentBase64 = await fileToBase64(file);
-          const contentType = file.type || undefined;
-          const written = await uploadOne(path, contentBase64, contentType);
-          if (written)
-            emitToast({ kind: "success", message: `Uploaded ${path}` });
-        } catch (err) {
-          emitToast({
-            kind: "error",
-            message: errorMessage(err, `Upload failed: ${path}`),
-          });
-        }
-      }
+      });
     },
-    [uploadMutation, showConfirm],
+    [uploadMutation, showConfirm, agentId],
   );
 
   const uploadBundle = useCallback(
     async (entries: BundleEntry[]) => {
       if (!agentId || entries.length === 0) return;
       try {
-        await importBundle({ agentId, entries });
+        await trackImport(agentId, () => importBundle({ agentId, entries }));
         emitToast({
           kind: "success",
           message: `Imported ${entries.length} file${entries.length === 1 ? "" : "s"}`,
@@ -262,5 +268,6 @@ export function useFileMutations(agentId: string | null) {
     deleteEntry,
     uploadFiles,
     uploadBundle,
+    isUploading,
   };
 }

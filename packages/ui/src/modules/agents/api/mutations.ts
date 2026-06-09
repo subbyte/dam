@@ -11,6 +11,7 @@ import {
   type BundleEntry,
   importRawBundle,
 } from "../../files/api/import-bundle.js";
+import { trackImport } from "../../files/track-import.js";
 import { agentsKeys } from "./queries.js";
 
 const invalidatesAgentsList = {
@@ -86,10 +87,9 @@ export function useCreateAgent() {
 
       if (preparedBundle) {
         try {
-          await importRawBundle({
-            agentId: agent.id,
-            bundle: preparedBundle.blob,
-          });
+          await trackImport(agent.id, () =>
+            importRawBundle({ agentId: agent.id, bundle: preparedBundle.blob }),
+          );
           emitToast({
             kind: "success",
             message: `Imported ${preparedBundle.label} into ${input.name}`,
