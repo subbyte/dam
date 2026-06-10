@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import {
   ConnectionsPicker,
@@ -15,7 +16,6 @@ import {
 } from "../../../components/connections-picker.js";
 import { sanitizeEnvVars } from "../../../components/env-vars-editor.js";
 import { FormField } from "../../../components/form-field.js";
-import { HoverTooltip } from "../../../components/hover-tooltip.js";
 import {
   DialogBody,
   DialogFooter,
@@ -399,16 +399,14 @@ export function ConfigureAgentDialog({
               {agent.templateId ? (
                 <>
                   Template:{" "}
-                  <HoverTooltip
-                    placement="right"
-                    trigger={
-                      <span className="font-semibold text-text-secondary border-b border-dotted border-text-muted cursor-help">
-                        {agent.templateId}
-                      </span>
-                    }
+                  <Tooltip
+                    side="right"
+                    content={<span className="font-mono">{agent.image}</span>}
                   >
-                    <span className="font-mono">{agent.image}</span>
-                  </HoverTooltip>
+                    <span className="font-semibold text-text-secondary border-b border-dotted border-text-muted cursor-help">
+                      {agent.templateId}
+                    </span>
+                  </Tooltip>
                 </>
               ) : (
                 <>

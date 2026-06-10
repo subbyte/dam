@@ -14,13 +14,13 @@ import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import {
   ConnectionsPicker,
   type OAuthAppEntry,
 } from "../../../components/connections-picker.js";
 import { FormField } from "../../../components/form-field.js";
-import { HoverTooltip } from "../../../components/hover-tooltip.js";
 import {
   DialogBody,
   DialogFooter,
@@ -308,16 +308,18 @@ export function AddAgentDialog({
               {selectedTemplate ? (
                 <>
                   Template:{" "}
-                  <HoverTooltip
-                    placement="right"
-                    trigger={
-                      <span className="font-semibold text-foreground/80 border-b border-dotted border-muted-foreground cursor-help">
-                        {selectedTemplate.name}
+                  <Tooltip
+                    side="right"
+                    content={
+                      <span className="font-mono">
+                        {selectedTemplate.image}
                       </span>
                     }
                   >
-                    <span className="font-mono">{selectedTemplate.image}</span>
-                  </HoverTooltip>
+                    <span className="font-semibold text-foreground/80 border-b border-dotted border-muted-foreground cursor-help">
+                      {selectedTemplate.name}
+                    </span>
+                  </Tooltip>
                 </>
               ) : (
                 <>

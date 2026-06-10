@@ -9,6 +9,7 @@ import type { AppConnectionView } from "api-server-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import { OAuthAppIcon } from "../modules/connections/components/oauth-app-icon.js";
 import { AnthropicIcon } from "../modules/settings/components/brand-icons.js";
@@ -19,7 +20,6 @@ import {
   mcpHostnameFromSecretName,
 } from "../types.js";
 import { AppStatusPill } from "./app-status-pill.js";
-import { HoverTooltip } from "./hover-tooltip.js";
 
 /**
  * One row in the picker's "OAuth Apps" subsection. Joins the
@@ -40,18 +40,12 @@ export function ConnectionsHeader() {
   return (
     <span className="flex items-center gap-1.5 text-[12px] font-bold text-foreground/80 uppercase tracking-[0.03em]">
       Connections
-      <HoverTooltip
-        trigger={
-          <Info
-            size={13}
-            className="text-muted-foreground hover:text-foreground/80 cursor-help"
-          />
-        }
-      >
-        Pick the providers, MCP servers, secrets, and apps this agent can use.
-        Credentials are injected at request time, so the agent never sees the
-        raw secret values.
-      </HoverTooltip>
+      <Tooltip content="Pick the providers, MCP servers, secrets, and apps this agent can use. Credentials are injected at request time, so the agent never sees the raw secret values.">
+        <Info
+          size={13}
+          className="text-muted-foreground hover:text-foreground/80 cursor-help"
+        />
+      </Tooltip>
     </span>
   );
 }
