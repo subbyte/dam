@@ -1,4 +1,5 @@
 import http from "node:http";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import headlessPkg from "@xterm/headless";
@@ -24,6 +25,7 @@ import { createFilesService } from "./modules/files.js";
 import { createImportHandlers, sweepStaging } from "./modules/import/index.js";
 import { composeSkills } from "./modules/skills/index.js";
 import { configureGitCredentialHelper } from "./modules/git.js";
+import { createPodServiceSupervisor } from "./modules/pod-service.js";
 import { createSshService, prepareSshd, spawnSshd } from "./modules/ssh.js";
 import { config } from "./modules/config.js";
 import { composeAcp } from "./modules/acp/compose.js";
@@ -83,6 +85,19 @@ const stateBackend = createFileDocumentStoreBackend(homeDir);
 // (harness, terminal, ssh, git) read it through the RuntimeEnvReader port.
 const envStore = createEnvStateStore(homeDir);
 
+const podServicePath = "/usr/local/bin/pod-service";
+const podLog = (msg: string) => process.stderr.write(`[pod-service] ${msg}\n`);
+const podService = existsSync(podServicePath)
+  ? createPodServiceSupervisor({
+      command: podServicePath,
+      stateBackend,
+      envReader: envStore,
+      log: podLog,
+    })
+  : null;
+
+if (envStore.ready()) podService?.refreshEnv();
+
 const { runtime: acpRuntime, triggerDriver } = composeAcp({
   command: config.PLATFORM_DEV
     ? ["npx", "tsx", join(__dir, "agent.ts")]
@@ -106,8 +121,7 @@ const runtimeChannel = await composeRuntimeChannel({
       store: envStore,
       onChange: () => {
         acpRuntime.refreshEnv();
-        // Env carrying GH_TOKEN just landed — (re)point git's credential helper
-        // at gh. Reads the freshly-written env; no-ops without a token.
+        podService?.refreshEnv();
         configureGitCredentialHelper(envStore, (msg) =>
           process.stderr.write(`[git] ${msg}\n`),
         );

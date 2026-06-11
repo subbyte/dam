@@ -3,7 +3,7 @@ FROM registry.access.redhat.com/hi/nodejs:24-builder AS base
 USER root
 ENV PATH="/app/node_modules/.bin:$PATH"
 
-RUN dnf install -y git tar gzip openssh-server && dnf clean all
+RUN dnf install -y git tar gzip openssh-server catatonit && dnf clean all
 
 ARG NPM_VERSION=11.16.0
 RUN npm install -g "npm@${NPM_VERSION}" && rm -rf /usr/lib/node_modules_24/npm
@@ -137,5 +137,5 @@ USER 65532
 ENV PORT=8080
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/agent-entrypoint"]
+ENTRYPOINT ["/usr/libexec/catatonit/catatonit", "--", "/usr/local/bin/agent-entrypoint"]
 CMD ["node", "dist/server.js"]

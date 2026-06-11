@@ -69,20 +69,6 @@ export interface InjectionConfig {
 const IBM_LITELLM_HOST = "ete-litellm.ai-models.vpc.res.ibm.com";
 const IBM_LITELLM_BASE_URL = `https://${IBM_LITELLM_HOST}`;
 
-/**
- * The IBM LiteLLM preset's default env-var bundle.
- *
- * The Claude Code model pins (ANTHROPIC_DEFAULT_*_MODEL, CLAUDE_CODE_SUBAGENT_MODEL,
- * ANTHROPIC_MODEL) are intentionally NOT here: the claude-code agent's local
- * LiteLLM gateway discovers them from the upstream's /v1/models and sets them at
- * session start (packages/agents/claude-code/litellm-gateway.py). A user who needs
- * a specific model sets the env var manually on the agent.
- *
- * 10 entries: 1 credential placeholder, 1 endpoint pin, 1 behavior flag,
- * 4 pi-agent `openai-proxy` overrides (`pi-dynamic-providers/index.ts`),
- * 3 Codex/OpenAI-compatible env vars. The OPENAI_* model ids stay fixed —
- * pi-agent and Codex have no gateway to discover them.
- */
 export function ibmLitellmEnvMappings(): EnvMapping[] {
   return [
     { envName: "ANTHROPIC_AUTH_TOKEN", placeholder: "sk-dummy" },
