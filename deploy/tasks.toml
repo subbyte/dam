@@ -395,7 +395,6 @@ else
   tar="/tmp/platform-images.tar"
   docker save -o "$tar" platform-controller:latest platform-api-server:latest platform-ui:latest platform-keycloak:latest "${AGENT_IMAGES[@]}"
   if [ -n "${IS_SANDBOX:-}" ]; then
-    [ -z "${CI:-}" ] && docker image prune --all --force >/dev/null 2>&1 || true
     sudo k3s ctr images import "$tar"
   else
     limactl copy "$tar" "$LIMA_INSTANCE":"$tar"

@@ -3,10 +3,10 @@ FROM ${BASE_IMAGE}
 
 USER root
 
-ARG CLAUDE_CODE_VERSION=2.1.170
+ARG CLAUDE_CODE_VERSION=2.1.173
+ARG CLAUDE_AGENT_ACP_VERSION=0.44.0
 RUN --mount=type=cache,target=/root/.npm \
-    npm pkg set "overrides.@anthropic-ai/sdk"=">=0.100.1" \
-    && npm install @agentclientprotocol/claude-agent-acp \
+    npm install "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && chown -R 65532:0 /app
 
