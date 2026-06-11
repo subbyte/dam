@@ -16,48 +16,13 @@ import {
   EXIT_SUCCESS,
 } from "../../shared/exit-codes.js";
 import { resolveActiveHost } from "../../shared/preflight.js";
-import { renderTable } from "../../shared/render-table.js";
+import { renderFittedTable } from "../../shared/render-table.js";
+import { writeStdoutAndExit } from "../../shared/stdout.js";
 import { resolveSourceRef } from "../domain/source-ref.js";
 import { type AnnotatedSkill, statusFor } from "../domain/skill-status.js";
 import type { SkillsService } from "../services/skills-service.js";
 
 const byName = (a: Skill, b: Skill): number => a.name.localeCompare(b.name);
-
-/** renderTable's inter-column gap. */
-const COLUMN_GAP = 3;
-/** Floor for the description column on narrow terminals. */
-const MIN_DESCRIPTION = 20;
-
-const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
-
-const truncate = (s: string, max: number): string =>
-  s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`;
-
-/**
- * Render a table whose LAST column is free-form text (a skill description).
- * renderTable doesn't wrap, so a long description would soft-wrap at the
- * terminal edge and bleed across rows; collapse it to one line and truncate
- * with `…` to whatever width the leading columns leave. `--json` keeps the
- * full text.
- */
-function renderFittedTable(
-  header: readonly string[],
-  rows: readonly (readonly string[])[],
-): string {
-  const leadCount = header.length - 1;
-  let leadWidth = 0;
-  for (let col = 0; col < leadCount; col++) {
-    const w = Math.max(header[col]!.length, ...rows.map((r) => r[col]!.length));
-    leadWidth += w + COLUMN_GAP;
-  }
-  const columns = process.stdout.columns ?? 100;
-  const budget = Math.max(MIN_DESCRIPTION, columns - leadWidth);
-  const clamped = rows.map((r) => [
-    ...r.slice(0, -1),
-    truncate(collapse(r[r.length - 1]!), budget),
-  ]);
-  return renderTable([[...header], ...clamped]);
-}
 
 export function buildCatalogCommand(deps: {
   compatService: CompatService;
@@ -173,17 +138,19 @@ export function buildCatalogCommand(deps: {
         if (installed === undefined) {
           // No --agent: raw catalog, no status annotation.
           if (opts.json) {
-            process.stdout.write(`${JSON.stringify(catalogRes.value)}\n`);
-            process.exit(EXIT_SUCCESS);
+            return writeStdoutAndExit(
+              `${JSON.stringify(catalogRes.value)}\n`,
+              EXIT_SUCCESS,
+            );
           }
           const sorted = [...catalogRes.value].sort(byName);
-          process.stdout.write(
+          return writeStdoutAndExit(
             renderFittedTable(
               ["NAME", "DESCRIPTION"],
               sorted.map((s) => [s.name, s.description]),
             ),
+            EXIT_SUCCESS,
           );
-          process.exit(EXIT_SUCCESS);
         }
 
         const annotated: AnnotatedSkill[] = catalogRes.value.map((s) => ({
@@ -191,17 +158,19 @@ export function buildCatalogCommand(deps: {
           status: statusFor(s, installed),
         }));
         if (opts.json) {
-          process.stdout.write(`${JSON.stringify(annotated)}\n`);
-          process.exit(EXIT_SUCCESS);
+          return writeStdoutAndExit(
+            `${JSON.stringify(annotated)}\n`,
+            EXIT_SUCCESS,
+          );
         }
         const sorted = [...annotated].sort(byName);
-        process.stdout.write(
+        return writeStdoutAndExit(
           renderFittedTable(
             ["NAME", "STATUS", "DESCRIPTION"],
             sorted.map((s) => [s.name, s.status, s.description]),
           ),
+          EXIT_SUCCESS,
         );
-        process.exit(EXIT_SUCCESS);
       },
     );
 }

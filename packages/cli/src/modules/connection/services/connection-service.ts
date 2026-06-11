@@ -59,20 +59,10 @@ export function createConnectionService(deps: {
 
   return {
     async list() {
-      return trpcCall(
-        () =>
-          deps.trpc.connections.list.query() as Promise<
-            readonly ConnectionView[]
-          >,
-      );
+      return trpcCall(() => deps.trpc.connections.list.query());
     },
     async listTemplates() {
-      return trpcCall(
-        () =>
-          deps.trpc.connections.listTemplates.query() as Promise<
-            readonly ConnectionTemplateView[]
-          >,
-      );
+      return trpcCall(() => deps.trpc.connections.listTemplates.query());
     },
     async createConnection(input) {
       return trpcCall(() => deps.trpc.connections.create.mutate(input));
@@ -86,12 +76,7 @@ export function createConnectionService(deps: {
       return trpcCall(() => deps.trpc.connections.discoverMcp.mutate({ url }));
     },
     async getConnection(id) {
-      return trpcCall(
-        () =>
-          deps.trpc.connections.get.query({
-            id,
-          }) as Promise<ConnectionView | null>,
-      );
+      return trpcCall(() => deps.trpc.connections.get.query({ id }));
     },
     async agentConnectionIds(agentId) {
       return trpcCall(() => readIds(agentId));

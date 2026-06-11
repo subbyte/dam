@@ -54,7 +54,7 @@ export const fileContribution = z.object({
   path: z.string().min(1),
   format: fileFormat,
   mergeMode: mergeMode,
-  content: z.unknown(),
+  content: z.unknown().optional(),
 });
 
 export const mcpEntryContribution = z.object({

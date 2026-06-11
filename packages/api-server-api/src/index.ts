@@ -248,8 +248,11 @@ export type {
   ApprovalView,
   ApprovalsService,
   ApprovalListOptions,
+  ApprovalActionOutcome,
 } from "./modules/approvals/types.js";
 export {
+  approvalActionOutcomeSchema,
+  approvalActionRuleSchema,
   approvalApproveHostInputSchema,
   approvalApproveOnceInputSchema,
   approvalApprovePermanentInputSchema,
@@ -260,6 +263,7 @@ export {
   approvalListOptionsSchema,
   approvalStatusSchema,
 } from "./modules/approvals/schemas.js";
+export { describeApprovalPayload } from "./modules/approvals/format.js";
 
 export type {
   RuleVerdict,
