@@ -51,6 +51,8 @@ export interface InfraAgent {
   hibernated: boolean;
   /** Last reconcile error, surfaced from the Reconciled condition. */
   error?: string;
+  /** Abnormal pod-termination cause, from the AgentPodReady condition message. */
+  podTerminationReason?: string;
 }
 
 /** Map the controller's conditions to the public-facing AgentState. Mostly
@@ -82,6 +84,13 @@ export function readyConditionStatus(
 function readyCondition(obj: KubeObject) {
   const status = (obj.status ?? {}) as AgentStatusObject;
   return status.conditions?.find((c) => c.type === "Ready");
+}
+
+/** The abnormal-termination cause the controller stamps on AgentPodReady, else undefined. */
+function agentPodTerminationMessage(obj: KubeObject): string | undefined {
+  const status = (obj.status ?? {}) as AgentStatusObject;
+  const c = status.conditions?.find((c) => c.type === "AgentPodReady");
+  return c?.status === "False" && c.message ? c.message : undefined;
 }
 
 export function agentOwner(obj: KubeObject): string | undefined {
@@ -118,6 +127,7 @@ export function parseInfraAgent(obj: KubeObject): InfraAgent {
     hibernated:
       ready?.status === "False" && ready.reason === READY_REASON_HIBERNATED,
     error,
+    podTerminationReason: agentPodTerminationMessage(obj),
   };
 }
 
@@ -135,6 +145,7 @@ export function assembleAgent(
     spec: infra.spec,
     state: computeAgentState(infra, preparingWorkspace),
     error: infra.error,
+    podTerminationReason: infra.podTerminationReason,
     contributionFailures,
     channels,
     allowedUserEmails,
