@@ -113,7 +113,10 @@ func (c *IdleChecker) check(ctx context.Context) {
 		"scanned", len(agents.Items), "hibernated", hibernated, "duration", time.Since(start))
 }
 
-// podIsBusy probes the agent runtime's /api/status endpoint to check for active sessions or triggers.
+// podIsBusy probes the agent runtime's /api/status endpoint. The runtime is
+// authoritative about its own idleness — it reports a single idle flag and the
+// controller does not re-derive busy-ness from raw counters. A runtime too old
+// to report the flag parses as idle=false, i.e. busy, which fails safe.
 // Returns false (not busy) on any error — allows hibernation if the pod is unreachable.
 func (c *IdleChecker) podIsBusy(agentName string) bool {
 	url := fmt.Sprintf("http://%s-0.%s.%s.svc:8080/api/status", agentName, agentName, c.config.Namespace)
@@ -128,14 +131,12 @@ func (c *IdleChecker) podIsBusy(agentName string) bool {
 		return false
 	}
 	var status struct {
-		ActiveSessions int  `json:"activeSessions"`
-		ActiveTriggers int  `json:"activeTriggers"`
-		TerminalActive bool `json:"terminalActive"`
+		Idle bool `json:"idle"`
 	}
 	if err := json.Unmarshal(body, &status); err != nil {
 		return false
 	}
-	return status.ActiveSessions > 0 || status.ActiveTriggers > 0 || status.TerminalActive
+	return !status.Idle
 }
 
 // hibernate scales an agent's paired StatefulSets (agent + gateway, both
