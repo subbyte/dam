@@ -1,0 +1,11 @@
+[settings]
+lockfile = true
+minimum_release_age = "7d"
+
+[tools]
+node = "24"
+ripgrep = "latest"
+fd = "latest"
+jq = "latest"
+uv = "latest"
+"npm:@googleworkspace/cli" = "latest"
