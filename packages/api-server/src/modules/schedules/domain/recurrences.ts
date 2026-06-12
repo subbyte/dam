@@ -42,10 +42,10 @@ interface QuietWindow {
 
 /**
  * Refuse to save a schedule whose every RRULE occurrence falls inside a
- * quiet-hours window — the controller's goroutine would spin its iteration
- * cap once and then never fire. Iteration cap matches the Go side (1440,
- * i.e. one day of minute-granularity occurrences). Uses rule.all with
- * early-exit instead of a rule.after loop, which is O(N²) in rrule.js.
+ * quiet-hours window — nextFireAt would exhaust its iteration cap and the
+ * schedule would never fire. Cap matches nextFireAt's (1440, i.e. one day
+ * of minute-granularity occurrences). Uses rule.all with early-exit
+ * instead of a rule.after loop, which is O(N²) in rrule.js.
  */
 export function validateHasVisibleOccurrence(
   rruleExpr: string,
@@ -71,9 +71,10 @@ export function validateHasVisibleOccurrence(
 }
 
 // Compare against UTC components rather than local: rrule.js produces
-// Dates whose UTC h:m echoes the RRULE's BYHOUR/BYMINUTE verbatim, which
-// is what the Go controller treats as wall-clock-in-schedule-tz. Reading
-// local components would apply the server's own tz offset incorrectly.
+// Dates whose UTC h:m echoes the RRULE's BYHOUR/BYMINUTE verbatim, i.e.
+// wall clock in the schedule's timezone — the same frame quiet-hours
+// HH:MM strings are in. Reading local components would apply the
+// server's own tz offset incorrectly.
 function isInQuietHours(date: Date, windows: QuietWindow[]): boolean {
   const m = date.getUTCHours() * 60 + date.getUTCMinutes();
   for (const w of windows) {
@@ -98,20 +99,63 @@ function parseHHMM(s: string): number | null {
 export function nextFireAt(spec: ScheduleSpec, from: Date): Date | null {
   if (spec.type === "cron") {
     try {
-      const cron = CronExpressionParser.parse(spec.cron, { currentDate: from });
+      // Legacy cron schedules are UTC by contract (ADR-031).
+      const cron = CronExpressionParser.parse(spec.cron, {
+        currentDate: from,
+        tz: "UTC",
+      });
       return cron.next().toDate();
     } catch {
       return null;
     }
   }
-  const rule = RRule.fromString(spec.rrule);
+  const wallFrom = toWallClock(from, spec.timezone);
+  // Without BYSECOND, occurrences inherit dtstart's seconds — zero them.
+  wallFrom.setUTCSeconds(0, 0);
+  const rule = new RRule({
+    dtstart: wallFrom,
+    ...RRule.parseString(spec.rrule),
+  });
   const enabled = (spec.quietHours ?? []).filter((w) => w.enabled);
-  let cursor = from;
+  let cursor = wallFrom;
   for (let i = 0; i < 1440; i++) {
     const next = rule.after(cursor, false);
     if (!next) return null;
-    if (enabled.length === 0 || !isInQuietHours(next, enabled)) return next;
+    if (enabled.length === 0 || !isInQuietHours(next, enabled)) {
+      return toInstant(next, spec.timezone);
+    }
     cursor = next;
   }
   return null;
+}
+
+// Wall-clock fields of `instant` in `tz`, carried in the Date's UTC fields.
+function toWallClock(instant: Date, tz: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(instant);
+  const f: Record<string, number> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") f[p.type] = Number(p.value);
+  }
+  return new Date(
+    Date.UTC(f.year, f.month - 1, f.day, f.hour % 24, f.minute, f.second),
+  );
+}
+
+// Inverse of toWallClock; the second offset read resolves DST boundaries.
+function toInstant(wall: Date, tz: string): Date {
+  const guess = wall.getTime() - tzOffsetMs(wall, tz);
+  return new Date(wall.getTime() - tzOffsetMs(new Date(guess), tz));
+}
+
+function tzOffsetMs(instant: Date, tz: string): number {
+  return toWallClock(instant, tz).getTime() - instant.getTime();
 }
