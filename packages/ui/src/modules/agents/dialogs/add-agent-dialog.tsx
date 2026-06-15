@@ -53,6 +53,10 @@ const tileClass = (active: boolean) =>
     active ? "border-primary bg-primary/10" : "bg-background hover:border-input"
   }`;
 
+// Retained but no longer reachable: the sandbox wizard (modules/sandboxes)
+// replaced this create flow, but does not yet support seeding a new sandbox's
+// working directory (catalog-repo clone + local file upload). Kept so that
+// seeding can be ported into the wizard rather than rebuilt from scratch.
 export function AddAgentDialog({
   templates,
   onSubmit,
