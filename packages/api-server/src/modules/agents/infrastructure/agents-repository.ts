@@ -27,6 +27,7 @@ export interface AgentsRepository {
   create(
     spec: Record<string, unknown>,
     owner: string,
+    name: string,
     templateId?: string,
   ): Promise<InfraAgent>;
   updateSpec(
@@ -92,10 +93,10 @@ export function createAgentsRepository(k8s: K8sClient): AgentsRepository {
       return parseInfraAgent(obj);
     },
 
-    async create(spec, owner, templateId?) {
+    async create(spec, owner, name, templateId?) {
       const created = await k8s.createCustomObject(
         AGENTS_PLURAL,
-        buildAgentObject(spec, owner, templateId),
+        buildAgentObject(spec, owner, name, templateId),
       );
       return parseInfraAgent(created);
     },
