@@ -75,6 +75,10 @@ Templates are registered in code; adding a new integration is one entry. Schemas
 
 Beyond the auth credential, a template may declare optional **config inputs** — e.g. Bob's model and tenant pins — that the user fills at connect time; each filled input projects into an additional `env` contribution, validated against the input's spec.
 
+#### Internal-only templates
+
+Some templates (initially Spotify, Slack, YouTube, and all Google services) are hidden from regular users client-side, affecting only what's offered (on both the Connections settings page and the sandbox creation wizard), not Connections already created. Testers reveal the full catalog by running `platformConnections.showInternal()` in the browser devtools console, or by tapping the version string on the settings page five times.
+
 ### Connection
 
 A uniform shape — every Connection looks the same regardless of category or auth mode:
