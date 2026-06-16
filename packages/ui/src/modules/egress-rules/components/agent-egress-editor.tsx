@@ -13,6 +13,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SectionLabel } from "@/components/ui/section-label";
 
 import {
   useApplyEgressPreset,
@@ -233,7 +234,7 @@ export function AgentEgressEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[12px] text-muted-foreground leading-relaxed max-w-prose">
+      <p className="text-[14px] text-muted-foreground max-w-prose">
         Rules decide which outbound HTTP requests this agent can make. The
         most-specific rule wins; <code>*</code> in <em>method</em> or
         <em>path</em> matches any value. Without a matching rule, the request
@@ -242,9 +243,7 @@ export function AgentEgressEditor({
 
       <Card className="px-3 py-3 flex flex-wrap items-end gap-2">
         <div className="flex flex-col gap-1 flex-1 min-w-[260px]">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {stagedMode ? "Preset" : "Apply preset"}
-          </span>
+          <SectionLabel>{stagedMode ? "Preset" : "Apply preset"}</SectionLabel>
           <select
             value={dropdownValue}
             onChange={(e) => onPresetSelect(e.target.value as EgressPreset)}
@@ -269,7 +268,7 @@ export function AgentEgressEditor({
             Apply
           </Button>
         )}
-        <p className="basis-full text-[11px] text-muted-foreground">
+        <p className="basis-full text-[14px] text-muted-foreground">
           {stagedMode
             ? presetPending
               ? `Save will replace existing preset rules with "${staged.preset}". Manual and connection-derived rules are preserved.`
@@ -286,7 +285,7 @@ export function AgentEgressEditor({
               onChange={(e) => setDraft({ ...draft, host: e.target.value })}
               onKeyDown={onInputKeyDown}
               placeholder="api.anthropic.com"
-              className="h-7 text-[12px]"
+              size="xs"
             />
           </Field>
           <Field label="Method" widthClass="w-[100px]">
@@ -317,7 +316,8 @@ export function AgentEgressEditor({
               }
               onKeyDown={onInputKeyDown}
               placeholder="*  or  /v1/messages*"
-              className="h-7 text-[12px] font-mono"
+              size="xs"
+              variant="monospace"
             />
           </Field>
           <Field label="Verdict" widthClass="w-[100px]">
@@ -341,6 +341,7 @@ export function AgentEgressEditor({
             className="h-7 text-[11px]"
             onClick={onAddRule}
             disabled={!canAdd}
+            variant="outline"
           >
             <Plus size={11} /> Add rule
           </Button>
@@ -442,9 +443,7 @@ function Field({
 }) {
   return (
     <label className={`flex flex-col gap-1 ${widthClass}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
+      <SectionLabel>{label}</SectionLabel>
       {children}
     </label>
   );
