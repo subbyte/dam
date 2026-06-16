@@ -1,4 +1,4 @@
-import type { ConnectionTemplateView } from "api-server-api";
+import type { AppConnectionView, ConnectionTemplateView } from "api-server-api";
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -6,16 +6,6 @@ import { cn } from "@/lib/utils";
 
 import { ConnectionIcon } from "./connection-icon.js";
 
-/**
- * The canonical connection-row family, shared across every surface that lists
- * connections — the create wizard, the sandbox settings page, and Settings →
- * Connections. Each surface supplies its own right-side action(s) via the
- * action slot and, where relevant, a select checkbox; the layout stays
- * identical so the three screens read as one component (the Figma "Connection"
- * states: unconnected → Connect, connected → Disconnect, +/- a select check).
- */
-
-/** A catalog template row: icon, name, description, and a Connect action. */
 export function ConnectionCatalogRow({
   template,
   onConnect,
@@ -27,32 +17,32 @@ export function ConnectionCatalogRow({
     <button
       type="button"
       onClick={onConnect}
-      className="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
+      data-testid={`connection-template-${template.id}`}
+      className="flex w-full items-start gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-muted/40"
     >
       <ConnectionIcon
         iconSlug={template.iconSlug}
         alt={template.name}
-        size={18}
-        className="shrink-0 text-foreground/80"
+        size={16}
+        className="mt-1 shrink-0 text-foreground/80"
       />
       <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-semibold text-foreground">
+        <p className="text-[16px] font-medium text-foreground">
           {template.name}
         </p>
         {template.description && (
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[14px] text-muted-foreground">
             {template.description}
           </p>
         )}
       </div>
-      <span className="shrink-0 text-[13px] font-medium text-foreground">
+      <span className="shrink-0 text-[14px] font-normal text-muted-foreground">
         Connect
       </span>
     </button>
   );
 }
 
-/** Right-aligned text action used on connection rows (Connect / Disconnect). */
 export function ConnectionAction({
   label,
   tone = "default",
@@ -70,8 +60,8 @@ export function ConnectionAction({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "shrink-0 text-[13px] font-medium hover:underline disabled:opacity-50",
-        tone === "danger" ? "text-danger" : "text-foreground",
+        "shrink-0 text-[14px] font-normal hover:underline disabled:opacity-50",
+        tone === "danger" ? "text-danger" : "text-muted-foreground",
       )}
     >
       {label}
@@ -79,20 +69,11 @@ export function ConnectionAction({
   );
 }
 
-/**
- * An existing-connection row. Two modes:
- *  - **selectable** (wizard + sandbox settings): the whole card is a button
- *    that toggles whether the connection is granted to this sandbox; a check
- *    box on the left reflects the state.
- *  - **action** (Settings → Connections): not a toggle — the caller supplies
- *    explicit right-side action(s) (Connect / Disconnect / install) via the
- *    slot, since that surface manages connections globally.
- */
 export function ConnectionRow({
   title,
   subtitle,
   iconSlug,
-  connected,
+  status,
   selectable = false,
   selected = false,
   onSelectedChange,
@@ -102,14 +83,12 @@ export function ConnectionRow({
   title: string;
   subtitle: string;
   iconSlug: string | undefined;
-  connected: boolean;
-  /** Render as a whole-card grant toggle (wizard + sandbox settings). */
+  status?: AppConnectionView["status"];
   selectable?: boolean;
   selected?: boolean;
   onSelectedChange?: (on: boolean) => void;
   /** Test hook for e2e (e.g. `connection-grant-<id>`); set on the card. */
   testId?: string;
-  /** Right-side action(s) for the non-selectable (management) variant. */
   children?: ReactNode;
 }) {
   const info = (
@@ -117,19 +96,15 @@ export function ConnectionRow({
       <ConnectionIcon
         iconSlug={iconSlug}
         alt={title}
-        size={18}
-        className="shrink-0 text-foreground/80"
+        size={16}
+        className="mt-1 shrink-0 text-foreground/80"
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="text-[14px] font-semibold text-foreground">{title}</p>
-          {connected && (
-            <span className="rounded-full bg-success-light px-2 py-0.5 text-[11px] font-medium text-success">
-              Connected
-            </span>
-          )}
+          <p className="text-[16px] font-medium text-foreground">{title}</p>
+          <StatusBadge status={status} />
         </div>
-        <p className="truncate text-[12px] text-muted-foreground">{subtitle}</p>
+        <p className="truncate text-[14px] text-muted-foreground">{subtitle}</p>
       </div>
     </>
   );
@@ -138,19 +113,17 @@ export function ConnectionRow({
     <div
       data-testid={testId}
       className={cn(
-        "flex items-center gap-3 rounded-lg border bg-card px-4 py-3",
+        "flex items-start gap-3 rounded-lg border bg-card p-4",
         selectable && selected ? "border-foreground" : "border-border",
       )}
     >
       {selectable ? (
-        // The grant toggle covers everything except the action(s) on the
-        // right, so most of the card is clickable without swallowing them.
         <button
           type="button"
           onClick={() => onSelectedChange?.(!selected)}
           role="checkbox"
           aria-checked={selected}
-          className="-my-3 flex min-w-0 flex-1 items-center gap-3 py-3 text-left"
+          className="-my-4 flex min-w-0 flex-1 items-start gap-3 py-4 text-left"
         >
           <SelectIndicator selected={selected} />
           {info}
@@ -163,14 +136,40 @@ export function ConnectionRow({
   );
 }
 
-/** Visual-only checkbox for the whole-card selectable row (the row's button
- *  owns the click, so this must not be interactive). */
+function StatusBadge({ status }: { status?: AppConnectionView["status"] }) {
+  if (status === "active")
+    return (
+      <span className="rounded-full bg-success-light px-2.5 py-0.5 text-[12px] font-normal text-success">
+        Connected
+      </span>
+    );
+  if (status === "pending")
+    return (
+      <span className="rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-normal text-muted-foreground">
+        Authorizing…
+      </span>
+    );
+  if (status === "expired")
+    return (
+      <span className="rounded-full bg-danger-light px-2.5 py-0.5 text-[12px] font-normal text-danger">
+        Expired
+      </span>
+    );
+  if (status === "disconnected")
+    return (
+      <span className="rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-normal text-muted-foreground">
+        Disconnected
+      </span>
+    );
+  return null;
+}
+
 function SelectIndicator({ selected }: { selected: boolean }) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+        "mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
         selected
           ? "border-foreground bg-foreground text-background"
           : "border-input",

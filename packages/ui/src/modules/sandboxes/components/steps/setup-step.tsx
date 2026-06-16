@@ -8,6 +8,7 @@ import type {
   EgressPreset,
   WizardSnapshot,
 } from "../../lib/wizard-snapshot.js";
+import { CardList } from "../card-list.js";
 import { ProviderSection } from "../provider-section.js";
 import {
   type RegistryCredential,
@@ -74,11 +75,14 @@ export function SetupStep({
 
       <section className="mb-8">
         <WizardSectionLabel>Name</WizardSectionLabel>
-        <Input
-          value={name}
-          onChange={(event) => update({ name: event.target.value })}
-          placeholder="my-sandbox"
-        />
+        <div className="md:-ml-3">
+          <Input
+            autoFocus
+            value={name}
+            onChange={(event) => update({ name: event.target.value })}
+            placeholder="my-sandbox"
+          />
+        </div>
       </section>
 
       <section className="mb-8">
@@ -96,7 +100,7 @@ export function SetupStep({
 
       <section className="mb-8">
         <WizardSectionLabel>Network access</WizardSectionLabel>
-        <div className="flex flex-col gap-3">
+        <CardList>
           {NETWORK_PRESETS.map((preset) => (
             <NetworkPresetRow
               key={preset.value}
@@ -106,7 +110,7 @@ export function SetupStep({
               onSelect={() => update({ egressPreset: preset.value })}
             />
           ))}
-        </div>
+        </CardList>
       </section>
 
       {showRegistry && (
@@ -145,7 +149,7 @@ function NetworkPresetRow({
       className={cn(
         "flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors",
         selected
-          ? "border-foreground bg-muted/50"
+          ? "border-foreground bg-card"
           : "border-border bg-card hover:bg-muted/30",
       )}
     >
@@ -156,8 +160,8 @@ function NetworkPresetRow({
         )}
       />
       <div>
-        <p className="text-[14px] font-medium text-foreground">{label}</p>
-        <p className="text-[12px] text-muted-foreground">{help}</p>
+        <p className="text-[16px] font-medium text-foreground">{label}</p>
+        <p className="text-[14px] text-muted-foreground">{help}</p>
       </div>
     </button>
   );

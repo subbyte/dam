@@ -1,3 +1,5 @@
+import { ArrowRight } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -5,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import { ListSkeleton } from "../../../../components/list-skeleton.js";
 import type { TemplateView } from "../../../../types.js";
+import { CardList } from "../card-list.js";
 import { StepHeader } from "../step-header.js";
 import { WizardSectionLabel } from "../wizard-section-label.js";
 
@@ -15,7 +18,7 @@ interface Props {
   customImage: string;
   onPickTemplate: (templateId: string) => void;
   onCustomImageChange: (value: string) => void;
-  onContinueWithCustom: () => void;
+  onContinue: () => void;
 }
 
 export function ImageStep({
@@ -25,8 +28,10 @@ export function ImageStep({
   customImage,
   onPickTemplate,
   onCustomImageChange,
-  onContinueWithCustom,
+  onContinue,
 }: Props) {
+  const canContinue =
+    selectedTemplateId !== null || customImage.trim().length > 0;
   return (
     <div>
       <StepHeader
@@ -37,11 +42,11 @@ export function ImageStep({
 
       <section className="mb-8">
         <WizardSectionLabel>Pick a pre-built image</WizardSectionLabel>
-        {loading ? (
-          <ListSkeleton rows={4} rowHeight={64} />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {templates.map((template) => (
+        <CardList>
+          {loading ? (
+            <ListSkeleton rows={4} rowHeight={64} />
+          ) : (
+            templates.map((template) => (
               <ImageCard
                 key={template.id}
                 name={template.name}
@@ -49,20 +54,27 @@ export function ImageStep({
                 selected={template.id === selectedTemplateId}
                 onSelect={() => onPickTemplate(template.id)}
               />
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </CardList>
       </section>
 
-      <section>
+      <section className="mb-8">
         <WizardSectionLabel>Or bring your own image</WizardSectionLabel>
-        <CustomImageCard
-          value={customImage}
-          selected={customImage.trim().length > 0}
-          onChange={onCustomImageChange}
-          onContinue={onContinueWithCustom}
-        />
+        <CardList>
+          <CustomImageCard
+            value={customImage}
+            selected={customImage.trim().length > 0}
+            onChange={onCustomImageChange}
+          />
+        </CardList>
       </section>
+
+      <div className="flex justify-end">
+        <Button onClick={onContinue} disabled={!canContinue}>
+          Continue <ArrowRight size={16} />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -84,17 +96,15 @@ function ImageCard({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "w-full rounded-lg border px-4 py-3 text-left transition-colors",
+        "w-full rounded-lg border p-4 text-left transition-colors",
         selected
           ? "border-foreground bg-muted/60"
           : "border-border bg-card hover:bg-muted/40",
       )}
     >
-      <p className="text-[15px] font-semibold text-foreground">{name}</p>
+      <p className="text-[16px] font-semibold text-foreground">{name}</p>
       {description && (
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-1 text-[14px] text-muted-foreground">{description}</p>
       )}
     </button>
   );
@@ -104,14 +114,11 @@ function CustomImageCard({
   value,
   selected,
   onChange,
-  onContinue,
 }: {
   value: string;
   selected: boolean;
   onChange: (value: string) => void;
-  onContinue: () => void;
 }) {
-  const canContinue = value.trim().length > 0;
   return (
     <div
       className={cn(
@@ -120,7 +127,7 @@ function CustomImageCard({
       )}
     >
       <div className="flex items-center gap-2">
-        <p className="text-[15px] font-semibold text-foreground">Custom</p>
+        <p className="text-[16px] font-semibold text-foreground">Custom</p>
         <Badge
           variant="outline"
           className="border-transparent bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
@@ -128,22 +135,16 @@ function CustomImageCard({
           Advanced
         </Badge>
       </div>
-      <p className="mt-0.5 text-[13px] text-muted-foreground">
+      <p className="mt-1 text-[14px] text-muted-foreground">
         Bring your own ACP-compatible image
       </p>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3">
         <Input
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && canContinue) onContinue();
-          }}
           placeholder="ghcr.io/org/agent:latest"
           variant="monospace"
         />
-        <Button onClick={onContinue} disabled={!canContinue}>
-          Continue
-        </Button>
       </div>
     </div>
   );

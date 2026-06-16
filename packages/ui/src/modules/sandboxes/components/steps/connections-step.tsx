@@ -24,6 +24,7 @@ import {
   saveSnapshot,
   type WizardSnapshot,
 } from "../../lib/wizard-snapshot.js";
+import { CardList } from "../card-list.js";
 import { StepHeader } from "../step-header.js";
 import { WizardSectionLabel } from "../wizard-section-label.js";
 
@@ -114,14 +115,14 @@ export function ConnectionsStep({
       {connections.length > 0 && (
         <section className="mb-8">
           <WizardSectionLabel>My connections</WizardSectionLabel>
-          <div className="flex flex-col gap-3">
+          <CardList>
             {connections.map((c) => (
               <ConnectionRow
                 key={c.id}
                 title={templateById.get(c.templateId)?.name ?? c.templateId}
                 subtitle={c.name}
                 iconSlug={templateById.get(c.templateId)?.iconSlug}
-                connected={c.status === "active"}
+                status={c.status}
                 selectable
                 selected={selected.has(c.id)}
                 onSelectedChange={(on) => toggle(c.id, on)}
@@ -135,7 +136,7 @@ export function ConnectionsStep({
                 />
               </ConnectionRow>
             ))}
-          </div>
+          </CardList>
         </section>
       )}
 
@@ -145,7 +146,7 @@ export function ConnectionsStep({
         return (
           <section key={cat} className="mb-8">
             <WizardSectionLabel>{CATEGORY_LABEL[cat]}</WizardSectionLabel>
-            <div className="flex flex-col gap-3">
+            <CardList>
               {list.map((t) => (
                 <ConnectionCatalogRow
                   key={t.id}
@@ -153,7 +154,7 @@ export function ConnectionsStep({
                   onConnect={() => setCreating(t)}
                 />
               ))}
-            </div>
+            </CardList>
           </section>
         );
       })}

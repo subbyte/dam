@@ -50,7 +50,6 @@ export function ConnectionTemplatesSection() {
     () => new Map(allTemplates.map((t) => [t.id, t])),
     [allTemplates],
   );
-  // Internal-only connections (Slack, Google, …) stay hidden unless revealed.
   const showInternal = isShowInternalConnectionsEnabled();
   const byCategory = useMemo(() => {
     const m = new Map<string, ConnectionTemplateView[]>();
@@ -79,7 +78,7 @@ export function ConnectionTemplatesSection() {
                 title={templateById.get(c.templateId)?.name ?? c.templateId}
                 subtitle={c.name}
                 iconSlug={templateById.get(c.templateId)?.iconSlug}
-                connected={c.status === "active"}
+                status={c.status}
               >
                 <ConnectionActions
                   connection={c}
@@ -131,8 +130,6 @@ export function ConnectionTemplatesSection() {
   );
 }
 
-/** Right-side actions for an existing connection in Settings → Connections:
- *  authorize a pending OAuth credential, install the GitHub App, delete. */
 function ConnectionActions({
   connection,
   onAuthorize,
