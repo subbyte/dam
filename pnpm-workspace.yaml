@@ -58,6 +58,9 @@ minimumReleaseAgeExclude:
   - "@earendil-works/pi-agent-core@0.79.1"
   - "@earendil-works/pi-ai@0.79.1"
   - "@earendil-works/pi-tui@0.79.1"
+  # form-data 4.0.6 fixes CVE-2026-12143 (HIGH), pulled in via the override
+  # above; published <7 days ago. Safe to drop once it ages past 7 days.
+  - "form-data@4.0.6"
 allowBuilds:
   # grpc-tools downloads the protoc binary in a postinstall step; needed
   # by `mise run api-server:gen:proto` (ts-proto codegen for ext_authz).
