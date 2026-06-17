@@ -49,9 +49,11 @@ export function EnvTab({
   const warnings = shadowWarnings(envVars, inherited);
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-[14px] text-muted-foreground">
-        Applied to every instance of this agent. Restart the instance pod to
-        pick up changes.
+      <p className="text-[12px] text-muted-foreground">
+        Variables added here are sent directly to the agent as plaintext. Use
+        them only for non-sensitive stubs and config — never secrets, which
+        belong in Connections. Changes apply to this agent; restart it to pick
+        them up.
       </p>
 
       {inherited.length > 0 && (
@@ -116,7 +118,7 @@ function InheritedEnvRow({ entry }: { entry: InheritedEnv }) {
       <span className="font-mono font-semibold text-text truncate">
         {entry.name}
       </span>
-      <span className="text-text-muted">=</span>
+      <span className="text-muted-foreground">=</span>
       <span
         className="font-mono text-muted-foreground truncate flex-1"
         title={entry.value}
@@ -124,7 +126,7 @@ function InheritedEnvRow({ entry }: { entry: InheritedEnv }) {
         {entry.value}
       </span>
       {!isSystem && (
-        <span className="text-[14px] text-muted-foreground italic truncate max-w-[160px]">
+        <span className="text-[12px] text-muted-foreground truncate max-w-[160px]">
           {sourceName}
         </span>
       )}
