@@ -1,6 +1,6 @@
 package v1
 
-// CRD schema generations (ADR-068). Shared-cluster CRDs are frozen for
+// CRD schema generations. Shared-cluster CRDs are frozen for
 // environment deploys, so the controller asserts at startup that the live CRD
 // carries at least the generation it was built against. On any schema change,
 // bump the constant together with the matching
