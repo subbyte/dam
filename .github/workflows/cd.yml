@@ -416,7 +416,7 @@ jobs:
 
   go-vuln:
     name: mise controller:scan:govulncheck
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -472,7 +472,7 @@ jobs:
 
   npm-audit:
     name: mise common:scan:npm-audit
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -527,7 +527,7 @@ jobs:
 
   mend-sca:
     name: Mend SCA
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -590,7 +590,7 @@ jobs:
 
   trivy-tasks:
     name: mise tasks | grep ':scan:trivy$'
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -610,7 +610,7 @@ jobs:
   container-scan:
     name: mise run ${{ matrix.task }}
     needs: [trivy-tasks, merge-images, merge-agents]
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -682,7 +682,7 @@ jobs:
   manage-security-issues:
     name: File security issues
     needs: [go-vuln, npm-audit, mend-sca, container-scan]
-    if: ${{ always() && github.event_name != 'pull_request' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
