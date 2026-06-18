@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SectionLabel } from "@/components/ui/section-label";
 import { cn } from "@/lib/utils";
 
 import { ProviderSection } from "../../../providers/components/provider-section.js";
@@ -17,7 +18,6 @@ import {
   registryFilledCount,
 } from "../registry-credential-section.js";
 import { StepHeader } from "../step-header.js";
-import { WizardSectionLabel } from "../wizard-section-label.js";
 
 const NETWORK_PRESETS: { value: EgressPreset; label: string; help: string }[] =
   [
@@ -75,7 +75,7 @@ export function SetupStep({
       />
 
       <section className="mb-8">
-        <WizardSectionLabel>Name</WizardSectionLabel>
+        <SectionLabel spaced>Name</SectionLabel>
         <FormField>
           <Input
             autoFocus
@@ -87,7 +87,7 @@ export function SetupStep({
       </section>
 
       <section className="mb-8">
-        <WizardSectionLabel>Provider</WizardSectionLabel>
+        <SectionLabel spaced>Provider</SectionLabel>
         <ProviderSection
           selectedSecretId={providerSecretId}
           onSelect={(secretId) => update({ providerSecretId: secretId })}
@@ -101,7 +101,7 @@ export function SetupStep({
       </section>
 
       <section className="mb-8">
-        <WizardSectionLabel>Network access</WizardSectionLabel>
+        <SectionLabel spaced>Network access</SectionLabel>
         <CardList>
           {NETWORK_PRESETS.map((preset) => (
             <NetworkPresetRow
