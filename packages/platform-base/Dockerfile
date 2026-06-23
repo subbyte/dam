@@ -107,7 +107,7 @@ COPY packages/platform-base/runtime-manifest.yaml /app/runtime-manifest.yaml
 COPY packages/platform-base/AGENTS.md /etc/AGENTS.md
 
 RUN mkdir -p /home/agent &&\
-    chown -R 65532 /etc/pki/ca-trust/source/anchors /etc/pki/ca-trust/extracted /etc/pki/tls/certs /app /home/agent /usr/local/share/mise &&\
+    chown -R 65532 /etc/mise /etc/pki/ca-trust/source/anchors /etc/pki/ca-trust/extracted /etc/pki/tls/certs /app /home/agent /usr/local/share/mise &&\
     ldconfig &&\
     echo 'sshd:x:74:' >> /etc/group &&\
     echo 'sshd:x:74:74:Privilege-separated SSH:/usr/share/empty.sshd:/usr/sbin/nologin' >> /etc/passwd &&\
