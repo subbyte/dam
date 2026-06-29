@@ -1,6 +1,6 @@
 # Agent lifecycle
 
-Last verified: 2026-06-25
+Last verified: 2026-06-29
 
 ## Overview
 
@@ -158,3 +158,8 @@ Schedules are independent Postgres rows and survive Agent deletion as orphans un
 
 Forks are the third durable concept in the bounded context (alongside Template and Agent). An `agent-fork` ConfigMap runs a derivative of an existing Agent with credential and env overrides. Unlike Agents, forks reconcile to a **Kubernetes Job** rather than a StatefulSet — they run to completion and are not woken, hibernated, or kept warm. This already matches the run-to-completion shape the target lifetime model intends for Agents. The interesting machinery is which secrets the fork can see and how its identity propagates upstream; see [security-and-credentials](security-and-credentials.md). A fork's Job inherits the parent Agent's image-pull Secret, so the kubelet pulls a private parent image without the fork ever seeing the credential.
 
+## Run executors (`dam-run`)
+
+A **Run** is an ephemeral, single-command executor behind the in-pod `dam-run` CLI: `dam-run <cmd>` runs the command in a *separate* sandbox pod that shares the calling pod's image, configuration, and RWX workspace, with stdio streamed through a PTY so it reads as a local invocation. The executor stands up no infrastructure of its own — just a bare Pod plus one egress NetworkPolicy admitting it to the parent's existing gateway, whose credentials and egress boundary it borrows wholesale (see [security-and-credentials](security-and-credentials.md#dam-run-executor-pods)). Its pod boots agent-runtime in **exec-only mode** — an exec endpoint plus health, no runtime-channel hello.
+
+The flow is synchronous over one WebSocket: `dam-run` dials the api-server harness port, which writes a `Run` CR, waits for the controller-published pod IP, then relays terminal-protocol frames both ways. When the stream closes (command exits, or `dam-run` dies) the api-server deletes the `Run`, and K8s GC reaps the owner-refed executor pod + NetworkPolicy. The `Run` is itself owner-refed to the parent Agent, so deleting the Agent cascade-deletes any in-flight `Run`. Two backstops cover a `Run` the api-server never cleaned up (e.g. a crash mid-stream): a controller hard-lifetime reaper and a harness-boot sweep that deletes any `Run` a fresh process holds no live relay for.

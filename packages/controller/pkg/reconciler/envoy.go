@@ -530,6 +530,10 @@ static_resources:
                 stat_prefix: agent_egress
                 upgrade_configs:
                   - upgrade_type: CONNECT
+                  # dam-run opens a WebSocket to the harness /run endpoint. The
+                  # CONNECT-tunnelled path carries it transparently; this also
+                  # admits the Upgrade on the absolute-URI forward path.
+                  - upgrade_type: websocket
                 http_filters:
                   # np-gate liveness probe (#675): answered locally before
                   # ext_authz; pass_through_mode:false so it never forwards.
@@ -1219,8 +1223,6 @@ func envoyContainer(cfg *config.Config, secrets []corev1.Secret) corev1.Containe
 			ReadOnly:  true,
 		})
 	}
-	readOnlyRoot := true
-	runAsNonRoot := true
 	return corev1.Container{
 		Name:            "envoy",
 		Image:           cfg.EnvoyImage,
@@ -1238,8 +1240,8 @@ func envoyContainer(cfg *config.Config, secrets []corev1.Secret) corev1.Containe
 		},
 		SecurityContext: &corev1.SecurityContext{
 			Capabilities:           &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			ReadOnlyRootFilesystem: &readOnlyRoot,
-			RunAsNonRoot:           &runAsNonRoot,
+			ReadOnlyRootFilesystem: ptrBool(true),
+			RunAsNonRoot:           ptrBool(true),
 		},
 	}
 }
