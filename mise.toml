@@ -17,6 +17,7 @@ maven = "latest"
 
 # Kubernetes
 helm = "4.2.0"
+kubectl = "latest"
 kubeconform = "latest"
 "lima" = "2"
 "go:sigs.k8s.io/crdify" = "latest"
