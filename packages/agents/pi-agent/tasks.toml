@@ -5,7 +5,8 @@ depends = ["platform-base:image"]
 run = '''
 #!/usr/bin/env bash
 [ -n "${SKIP_IMAGE_BUILD:-}" ] && exit 0
-docker build -t platform-pi-agent:latest packages/agents/pi-agent
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
+"$CONTAINER_ENGINE" build -t platform-pi-agent:latest packages/agents/pi-agent
 '''
 
 ["agents:pi-agent:scan"]

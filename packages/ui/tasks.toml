@@ -55,7 +55,8 @@ dir = "{{config_root}}"
 run = '''
 #!/usr/bin/env bash
 [ -n "${SKIP_IMAGE_BUILD:-}" ] && exit 0
-docker build -f packages/ui/Dockerfile -t platform-ui:latest .
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
+"$CONTAINER_ENGINE" build -f packages/ui/Dockerfile -t platform-ui:latest .
 '''
 
 ["ui:scan"]

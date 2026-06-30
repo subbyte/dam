@@ -82,7 +82,8 @@ run = '''
 #!/usr/bin/env bash
 set -eo pipefail
 [ -n "${SKIP_IMAGE_BUILD:-}" ] && exit 0
-docker build -f packages/keycloak-theme/Dockerfile -t platform-keycloak:latest .
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
+"$CONTAINER_ENGINE" build -f packages/keycloak-theme/Dockerfile -t platform-keycloak:latest .
 '''
 
 ["keycloak-theme:scan"]

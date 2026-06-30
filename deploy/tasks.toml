@@ -61,6 +61,7 @@ raw = true
 run = '''
 #!/usr/bin/env bash
 set -eo pipefail
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 
 LIMA_INSTANCE="platform-k3s"
 LIMA_TEMPLATE="deploy/lima-k3s.yaml"
@@ -355,8 +356,8 @@ helm dependency build deploy/helm/platform
 # 3. Load images into k3s (built by depends: image:*, or out-of-band in CI).
 # SKIP_IMAGE_LOAD skips the containerd import — cluster:helm reuses the SHAs
 # already loaded, so pods keep their pinned images. SKIP_IMAGE_BUILD alone (CI)
-# does NOT skip the load: buildx built the images out-of-band into the docker
-# daemon, and they still have to be imported into k3s's separate containerd.
+# does NOT skip the load: the images were built out-of-band into the local
+# engine's store, and they still have to be imported into k3s's separate containerd.
 if [ -n "${SKIP_IMAGE_LOAD:-}" ]; then
   echo "Skipping image load (SKIP_IMAGE_LOAD set)"
   NO_RESTART=true
@@ -387,7 +388,7 @@ else
       # the per-agent tasks; in CI the image is already in the daemon.
       if [ -z "${SKIP_IMAGE_BUILD:-}" ]; then
         {{ mise_bin }} run platform-base:image
-        docker build -f "packages/e2e/agents/$name/Dockerfile" -t "$image" .
+        "$CONTAINER_ENGINE" build -f "packages/e2e/agents/$name/Dockerfile" -t "$image" .
       fi
       AGENT_IMAGES+=("$image")
     else
@@ -398,7 +399,7 @@ else
 
   echo "Loading images into k3s..."
   tar="/tmp/platform-images.tar"
-  docker save -o "$tar" platform-controller:latest platform-api-server:latest platform-ui:latest platform-keycloak:latest "${AGENT_IMAGES[@]}"
+  "$CONTAINER_ENGINE" save -o "$tar" platform-controller:latest platform-api-server:latest platform-ui:latest platform-keycloak:latest "${AGENT_IMAGES[@]}"
   if [ -n "${IS_SANDBOX:-}" ]; then
     sudo k3s ctr images import "$tar"
   else
@@ -529,9 +530,10 @@ run = '''
 #!/usr/bin/env bash
 set -eo pipefail
 
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 echo "Loading into k3s..."
 tar="/tmp/platform-api-server.tar"
-docker save platform-api-server:latest -o "$tar"
+"$CONTAINER_ENGINE" save platform-api-server:latest -o "$tar"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
@@ -566,9 +568,10 @@ run = '''
 #!/usr/bin/env bash
 set -eo pipefail
 
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 echo "Loading into k3s..."
 tar="/tmp/platform-controller.tar"
-docker save platform-controller:latest -o "$tar"
+"$CONTAINER_ENGINE" save platform-controller:latest -o "$tar"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
@@ -603,9 +606,10 @@ run = '''
 #!/usr/bin/env bash
 set -eo pipefail
 
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 echo "Loading into k3s..."
 tar="/tmp/platform-ui.tar"
-docker save platform-ui:latest -o "$tar"
+"$CONTAINER_ENGINE" save platform-ui:latest -o "$tar"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
@@ -638,6 +642,7 @@ dir = "{{config_root}}"
 run = '''
 #!/usr/bin/env bash
 set -eo pipefail
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
@@ -668,7 +673,7 @@ while IFS=$'\t' read -r name image; do
     # have no agents:*:image task — build straight from their Dockerfile, root
     # context so the platform-base FROM resolves. Mirrors cluster:install.
     {{ mise_bin }} run platform-base:image
-    docker build -f "packages/e2e/agents/$name/Dockerfile" -t "$image" .
+    "$CONTAINER_ENGINE" build -f "packages/e2e/agents/$name/Dockerfile" -t "$image" .
     AGENT_IMAGES+=("$image")
   else
     echo "WARN: no build task for '$name' ($image) — skipping local build" >&2
@@ -683,7 +688,7 @@ fi
 
 echo "Loading into k3s..."
 tar="/tmp/platform-agent-images.tar"
-docker save "${AGENT_IMAGES[@]}" -o "$tar"
+"$CONTAINER_ENGINE" save "${AGENT_IMAGES[@]}" -o "$tar"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   sudo k3s ctr images import "$tar"
@@ -718,9 +723,10 @@ run = '''
 #!/usr/bin/env bash
 set -eo pipefail
 
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 echo "Loading into k3s..."
 tar="/tmp/platform-keycloak.tar"
-docker save platform-keycloak:latest -o "$tar"
+"$CONTAINER_ENGINE" save platform-keycloak:latest -o "$tar"
 
 if [ -n "${IS_SANDBOX:-}" ]; then
   KUBECONFIG="/etc/rancher/k3s/k3s.yaml"

@@ -6,6 +6,7 @@ run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 [ -n "${SKIP_IMAGE_BUILD:-}" ] && exit 0
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
 
 # Nous installs from its public GitHub repo at build time (no vendoring). The
 # Dockerfile pins a default release; override it here with NOUS_REF=<tag|branch|sha>.
@@ -13,7 +14,7 @@ build_args=()
 [ -n "${NOUS_REF:-}" ] && build_args+=(--build-arg "NOUS_REF=${NOUS_REF}")
 
 # ${build_args[@]+...} guards the empty-array expansion under `set -u` (bash 3.2 on macOS).
-docker build ${build_args[@]+"${build_args[@]}"} -t platform-nous:latest packages/agents/nous
+"$CONTAINER_ENGINE" build ${build_args[@]+"${build_args[@]}"} -t platform-nous:latest packages/agents/nous
 '''
 
 ["agents:nous:sync-commands"]

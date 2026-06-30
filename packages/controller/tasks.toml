@@ -181,7 +181,8 @@ dir = "{{config_root}}"
 run = '''
 #!/usr/bin/env bash
 [ -n "${SKIP_IMAGE_BUILD:-}" ] && exit 0
-docker build -t platform-controller:latest packages/controller/
+source "$(git rev-parse --show-toplevel)/deploy/container-engine.sh"
+"$CONTAINER_ENGINE" build -t platform-controller:latest packages/controller/
 '''
 
 ["controller:scan:trivy"]
