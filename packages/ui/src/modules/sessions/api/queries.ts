@@ -32,6 +32,7 @@ export function optimisticInsertSession(
     mode,
     createdAt: new Date().toISOString(),
     scheduleId: null,
+    experimentId: null,
     title: null,
     updatedAt: null,
   };
@@ -57,8 +58,9 @@ export function removeSessionFromCache(
 
 /**
  * Sessions list, read straight off the agent over ACP `session/list`
- * and decoded from `_meta.platform`. Schedule sessions are excluded from the
- * main list; channel sessions are included only when asked. Pass
+ * and decoded from `_meta.platform`. Regular and experiment-trial sessions are
+ * always listed (so an arm's trial is reachable from its agent's sidebar);
+ * schedule sessions are excluded; channel sessions are included only when asked. Pass
  * `enabled: false` (e.g. while the agent is waking) to keep the query in cache
  * without firing requests.
  *
@@ -80,7 +82,10 @@ export function useAcpSessions(
     queryFn: live
       ? async () => {
           const sessions = await listAgentSessions(agentId);
-          const allowed: string[] = [SessionType.Regular];
+          const allowed: string[] = [
+            SessionType.Regular,
+            SessionType.ExperimentTrial,
+          ];
           if (includeChannel)
             allowed.push(SessionType.ChannelSlack, SessionType.ChannelTelegram);
           const fresh = sessions.filter((s) => allowed.includes(s.type));

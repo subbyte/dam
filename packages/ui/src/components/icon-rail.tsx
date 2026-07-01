@@ -1,5 +1,6 @@
 import {
   type CarbonIconType,
+  Chemistry,
   Email as Inbox,
   Home,
   Settings,
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { getBrand } from "../brand.js";
 import { useApprovalsForOwner } from "../modules/approvals/api/queries.js";
+import { isShowExperimentsEnabled } from "../modules/experiments/internal-only.js";
 import { useStore } from "../store.js";
 
 const EMPTY: never[] = [];
@@ -27,9 +29,11 @@ export function IconRail() {
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
   const navigateToSettings = useStore((s) => s.navigateToSettings);
+  const navigateToExperiments = useStore((s) => s.navigateToExperiments);
 
   const { data: approvals = EMPTY } = useApprovalsForOwner();
   const pendingCount = approvals.filter((r) => r.status === "pending").length;
+  const showExperiments = isShowExperimentsEnabled();
 
   const home: Destination = {
     label: "Home",
@@ -37,6 +41,16 @@ export function IconRail() {
     active: view === "list",
     badge: 0,
     navigate: () => setView("list"),
+  };
+  const experiments: Destination = {
+    label: "Experiments",
+    icon: Chemistry,
+    active:
+      view === "experiments" ||
+      view === "experiment-new" ||
+      view === "experiment-detail",
+    badge: 0,
+    navigate: navigateToExperiments,
   };
   const inbox: Destination = {
     label: "Inbox",
@@ -72,6 +86,7 @@ export function IconRail() {
         </div>
         <div className="flex flex-col items-center gap-1">
           <RailItem {...home} />
+          {showExperiments && <RailItem {...experiments} />}
         </div>
         <div className="flex-1" />
         {/* Inbox is grouped with Settings at the bottom, per the redesign (Figma 152:4567). */}
@@ -82,9 +97,11 @@ export function IconRail() {
       </nav>
 
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex items-stretch border-t bg-card/95 backdrop-blur-xl safe-bottom">
-        {[home, inbox, settings].map((destination) => (
-          <BottomBarItem key={destination.label} {...destination} />
-        ))}
+        {[home, ...(showExperiments ? [experiments] : []), inbox, settings].map(
+          (destination) => (
+            <BottomBarItem key={destination.label} {...destination} />
+          ),
+        )}
       </nav>
     </>
   );

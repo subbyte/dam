@@ -33,6 +33,9 @@ import {
   composeSchedulesForOwner,
   type SchedulesBoot,
 } from "../../modules/schedules/index.js";
+import { composeExperimentsForOwner } from "../../modules/experiments/index.js";
+import { createCandidateRoutes } from "../../modules/experiments/candidate-route.js";
+import { composeArtifactsModule } from "../../modules/artifacts/compose.js";
 import { composeSkillsModule } from "../../modules/skills/compose.js";
 import { composeFilesModule } from "../../modules/files/files-service.js";
 import { createSlackOAuthRoutes } from "../../modules/channels/infrastructure/slack-oauth.js";
@@ -312,6 +315,22 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
   );
 
   deps.mountUsageRoutes(app);
+
+  // Candidate download — non-tRPC because it streams a binary artifact (zip).
+  // Boot-time artifact service (owner-agnostic store); the route owner-scopes
+  // each read through the experiments service.
+  const { service: artifacts } = composeArtifactsModule({
+    db,
+    maxBytes: config.maxArtifactBytes,
+  });
+  app.route(
+    "/",
+    createCandidateRoutes({
+      experimentsFor: (owner) =>
+        composeExperimentsForOwner({ db, owner }).experiments,
+      artifacts,
+    }),
+  );
 
   if ((config.slackBotToken && config.slackAppToken) || config.e2eEnabled) {
     app.route(
@@ -721,6 +740,15 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
       owner: user.sub,
       agentExists: async (agentId) => (await agents.get(agentId)) !== null,
     });
+    const { experiments } = composeExperimentsForOwner({
+      db,
+      owner: user.sub,
+      agentExists: async (agentId) => (await agents.get(agentId)) !== null,
+      runtimeMutator,
+      wakeAgent: async (agentId) => {
+        await agentsRepo.wakeIfHibernated(agentId);
+      },
+    });
     const skills = composeSkillsModule(
       api,
       config.namespace,
@@ -768,6 +796,7 @@ export function startApiServerApp(deps: ApiServerAppDeps) {
         skills,
         approvals,
         egressRules,
+        experiments,
         files,
         terms,
         e2e,

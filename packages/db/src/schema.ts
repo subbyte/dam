@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
+  customType,
   text,
   jsonb,
   uniqueIndex,
@@ -12,6 +13,15 @@ import {
   bigint,
   integer,
 } from "drizzle-orm/pg-core";
+
+/** Postgres `bytea`. drizzle-orm/pg-core has no built-in binary column; the
+ *  postgres.js driver maps a JS Buffer to/from bytea natively, so this only
+ *  needs to declare the SQL type. Used for inline candidate-artifact blobs. */
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 /** Outcome of a recorded activity. Constrained at the DB so a typo or a
  *  forgotten field surfaces as a constraint violation, not as a row that
@@ -459,4 +469,104 @@ export const apiKeys = pgTable(
       .on(table.ownerSub)
       .where(sql`${table.revokedAt} IS NULL`),
   ],
+);
+
+export const experiments = pgTable(
+  "experiments",
+  {
+    id: text("id").primaryKey(),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    prompt: text("prompt").notNull(),
+    status: text("status").notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("experiments_owner_idx").on(table.owner),
+    uniqueIndex("experiments_owner_name_unique_idx").on(
+      table.owner,
+      table.name,
+    ),
+  ],
+);
+
+// `status` + `last_activity_at` (dam-u1n.13): per-arm status is the source of
+// truth for Experiment completion. Without it, "this arm finished" is not
+// representable and an Experiment can never leave `running`. Lifecycle:
+// pending → running → completed | failed | stopped. `last_activity_at` is the
+// liveness clock the inactivity-deadline sweep reads — set when the arm starts
+// running and bumped on each recorded Run; a `running` arm that goes quiet past
+// the deadline is reaped to `failed` so the Experiment can still complete.
+export const experimentArms = pgTable(
+  "experiment_arms",
+  {
+    experimentId: text("experiment_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    armVariation: text("arm_variation").notNull().default(""),
+    status: text("status").notNull().default("pending"),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.experimentId, table.agentId] }),
+    index("experiment_arms_agent_idx").on(table.agentId),
+    index("experiment_arms_running_activity_idx")
+      .on(table.lastActivityAt)
+      .where(sql`${table.status} = 'running'`),
+  ],
+);
+
+export const experimentRuns = pgTable(
+  "experiment_runs",
+  {
+    id: text("id").primaryKey(),
+    experimentId: text("experiment_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    runNumber: integer("run_number").notNull(),
+    sessionId: text("session_id").notNull(),
+    candidateRef: text("candidate_ref"),
+    score: jsonb("score"),
+    status: text("status").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("experiment_runs_arm_run_number_idx").on(
+      table.experimentId,
+      table.agentId,
+      table.runNumber,
+    ),
+  ],
+);
+
+/** Candidate artifact blobs for Experiments — the downloadable archive a Run
+ *  produced. Stored in Postgres so the api-server can serve it while the
+ *  producing agent is hibernated (Postgres is independent of agent pods);
+ *  api-server-owned, like the rest of this schema. Capped small (the artifact
+ *  service rejects over-cap puts) and held inline as `bytea`. Addressed by an
+ *  opaque text `key` the caller path-namespaces by experiment/agent/run; a Run
+ *  points at it via `experiment_runs.candidate_ref` — no hard FK, so the store
+ *  stays decoupled from the ledger. */
+export const runArtifacts = pgTable(
+  "run_artifacts",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    content: bytea("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("run_artifacts_key_idx").on(table.key)],
 );

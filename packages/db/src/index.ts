@@ -21,6 +21,10 @@ export {
   actorRoles,
   termsAcceptances,
   apiKeys,
+  experiments,
+  experimentArms,
+  experimentRuns,
+  runArtifacts,
 } from "./schema.js";
 export {
   eq,
