@@ -324,6 +324,7 @@ func buildEphemeralAgentPod(c ephemeralPodConfig) (objLabels map[string]string, 
 		Volumes:                       volumes,
 	}
 	applyAgentBaseScheduling(&podSpec, base)
+	applyTemplateScheduling(&podSpec, c.agentSpec)
 
 	return objLabels, corev1.PodTemplateSpec{ObjectMeta: podMeta, Spec: podSpec}
 }

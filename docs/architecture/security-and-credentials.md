@@ -332,6 +332,9 @@ Hosts the api-server has issued a credential for surface as L7 chains (SNI
 match, header injection); hosts with no credential surface as L4
 passthrough chains.
 
+A host's L7 chain can opt into HTTP/2 so credential injection also covers
+gRPC request streams (e.g. Modal); hosts default to HTTP/1.1 unchanged.
+
 **Multiple injection steps per host.** A single host can carry more than
 one credential — either two different credentials (e.g. an API key and a
 tenant ID on distinct headers) or the same credential injected into both

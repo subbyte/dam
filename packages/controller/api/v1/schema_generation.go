@@ -11,7 +11,9 @@ const (
 
 	// Agent gen 2: imagePullSecretRef added to AgentSpec (#930/#932).
 	// Agent gen 3: hibernationTimeout (per-agent idle-timeout override, duration) added to AgentSpec.
-	AgentSchemaGeneration = 3
+	// Agent gen 4: runtimeClassName + nodeSelector added to AgentSpec for
+	// per-template scheduling (GPU-passthrough Kata workloads).
+	AgentSchemaGeneration = 4
 	ForkSchemaGeneration  = 1
 	RunSchemaGeneration   = 1
 )

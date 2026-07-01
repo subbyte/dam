@@ -87,6 +87,13 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 		*out = new(metav1.Duration)
 		**out = **in
 	}
+	if in.NodeSelector != nil {
+		in, out := &in.NodeSelector, &out.NodeSelector
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.GrantedSecretIDs != nil {
 		in, out := &in.GrantedSecretIDs, &out.GrantedSecretIDs
 		*out = make([]string, len(*in))
