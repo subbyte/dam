@@ -17,6 +17,7 @@ import (
 
 	apiv1 "github.com/kagenti/platform/packages/controller/api/v1"
 	"github.com/kagenti/platform/packages/controller/pkg/config"
+	"github.com/kagenti/platform/packages/controller/pkg/telemetry"
 )
 
 type IdleChecker struct {
@@ -26,7 +27,7 @@ type IdleChecker struct {
 	// busyProbe reports whether an agent's pod is mid-work and must not be
 	// hibernated. Defaults to the live HTTP probe (podIsBusy); overridable in
 	// tests so the busy-guard branch can be exercised without a real pod.
-	busyProbe func(agentName string) bool
+	busyProbe func(ctx context.Context, agentName string) bool
 }
 
 func NewIdleChecker(client kubernetes.Interface, dyn dynamic.Interface, cfg *config.Config) *IdleChecker {
@@ -72,10 +73,14 @@ func (c *IdleChecker) checkInterval() time.Duration {
 }
 
 func (c *IdleChecker) check(ctx context.Context) {
+	ctx, finish := telemetry.StartPass(ctx, "idle check")
+	var passErr error
+	defer func() { finish(passErr) }()
 	start := time.Now()
 	agents, err := c.dynamic.Resource(AgentsGVR).Namespace(c.config.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		slog.Error("idle checker: listing agents", "error", err)
+		slog.ErrorContext(ctx, "idle checker: listing agents", "error", err)
+		passErr = err
 		return
 	}
 
@@ -96,7 +101,7 @@ func (c *IdleChecker) check(ctx context.Context) {
 		// hasn't bumped last-activity must not be hibernated out from under
 		// itself. This guard is why scale-down lives here, not in the
 		// reconciler.
-		if c.busyProbe(name) {
+		if c.busyProbe(ctx, name) {
 			slog.Info("idle checker: skipping busy agent", "agent", name)
 			continue
 		}
@@ -132,10 +137,14 @@ func hibernationOverride(agent *unstructured.Unstructured) *metav1.Duration {
 // controller does not re-derive busy-ness from raw counters. A runtime too old
 // to report the flag parses as idle=false, i.e. busy, which fails safe.
 // Returns false (not busy) on any error — allows hibernation if the pod is unreachable.
-func (c *IdleChecker) podIsBusy(agentName string) bool {
+func (c *IdleChecker) podIsBusy(ctx context.Context, agentName string) bool {
 	url := fmt.Sprintf("http://%s-0.%s.%s.svc:8080/api/status", agentName, agentName, c.config.Namespace)
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(url)
+	client := &http.Client{Timeout: 3 * time.Second, Transport: telemetry.WrapTransport(nil)}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
