@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -50,6 +51,26 @@ type Config struct {
 	EnvoyMitmCAIssuer        string        // cert-manager ClusterIssuer that mints per-instance leaf certs for the Envoy sidecar's TLS interception
 	EnvoyMitmLeafDuration    time.Duration // 0 = cert-manager default
 	EnvoyMitmLeafRenewBefore time.Duration // 0 = cert-manager default
+	// OTelEnv is the OpenTelemetry environment the controller inherited — every
+	// `OTEL_*` variable in its own process env. The chart sets these under
+	// `clickstack.enabled` (pointing at the bundled collector, the same env the
+	// controller's own SDK reads); a BYO-collector deployment can inject them
+	// instead (e.g. via the OpenTelemetry Operator). The controller relays them
+	// onto gateway Envoy pods and parses the OTLP endpoint to point the
+	// gateway's exporter at the same collector — the gateway is the one
+	// component zero-code auto-instrumentation cannot reach (Envoy is a C++
+	// data plane, not an app runtime), so the controller configures it natively
+	// from this environment. Empty when instrumentation is off — gateways then
+	// emit no telemetry.
+	OTelEnv map[string]string
+	// GatewayOTLPEndpoint/GatewayOTLPProtocol override the relayed OTEL_* pair
+	// for the gateway exporter specifically. The chart sets them to the
+	// bundled collector's gRPC endpoint under `clickstack.enabled` — gRPC
+	// because Envoy's stats sink speaks nothing else — while the controller's
+	// own SDK keeps its OTLP/HTTP env. Empty in BYO deployments, where the
+	// inherited OTEL_* drive the gateway too.
+	GatewayOTLPEndpoint string
+	GatewayOTLPProtocol string
 	// ExtAuthzPort identifies the API server's HITL ext_authz listener
 	// (gRPC). Both Envoy filters use the same endpoint:
 	//   - HTTP filter on TLS-terminated chains (L7 — sees method/path)
@@ -82,6 +103,152 @@ type Config struct {
 	TelemetryCollectorHost string
 	// TelemetryCollectorPort is the collector's OTLP/HTTP port (default 4318).
 	TelemetryCollectorPort int
+}
+
+// otelEnvPrefix selects the OpenTelemetry environment family. The controller
+// collects every variable with this prefix from its own process and relays
+// them to gateway Envoy pods, so new OTel knobs flow through without the
+// controller enumerating them.
+const otelEnvPrefix = "OTEL_"
+
+// collectOTelEnv snapshots the controller's OTEL_* environment.
+func collectOTelEnv() map[string]string {
+	out := map[string]string{}
+	for _, kv := range os.Environ() {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		if key := kv[:eq]; strings.HasPrefix(key, otelEnvPrefix) {
+			out[key] = kv[eq+1:]
+		}
+	}
+	return out
+}
+
+// OTLPExporter is the parsed view of the inherited OTLP endpoint the gateway
+// Envoy bootstrap needs. Secure (https scheme) and GRPC (transport) are
+// orthogonal: an `http://host:4317` endpoint is plaintext OTLP/gRPC.
+type OTLPExporter struct {
+	Host   string
+	Port   int
+	Secure bool // https scheme → wrap the exporter cluster in upstream TLS
+	GRPC   bool // OTLP/gRPC (true) vs OTLP/HTTP (false), from OTEL_EXPORTER_OTLP_PROTOCOL
+}
+
+// OTelEnabled reports whether the platform's OpenTelemetry instrumentation is
+// active — i.e. the controller's environment carries an OTLP endpoint it can
+// point gateway Envoys at. When false the gateway emits no telemetry. Distinct
+// from TelemetryEnabled, which gates the agent-telemetry transit chain.
+func (c *Config) OTelEnabled() bool {
+	_, ok := c.OTelExporter()
+	return ok
+}
+
+// OTelExporter resolves the exporter the gateway Envoy bootstrap targets.
+// The gateway-specific PLATFORM_GATEWAY_OTLP_ENDPOINT/_PROTOCOL pair wins when
+// set — the chart points it at the bundled collector's gRPC port, decoupled
+// from the OTEL_* env the controller's own (OTLP/HTTP-only) SDK reads, so the
+// two consumers never constrain each other's transport. Without the override
+// the inherited OTEL_EXPORTER_OTLP_ENDPOINT/_PROTOCOL apply (the BYO case).
+// ok is false when neither source names an endpoint.
+func (c *Config) OTelExporter() (OTLPExporter, bool) {
+	if exp, ok := parseOTLPExporter(c.GatewayOTLPEndpoint, c.GatewayOTLPProtocol); ok {
+		return exp, true
+	}
+	return parseOTLPExporter(c.OTelEnv["OTEL_EXPORTER_OTLP_ENDPOINT"], c.OTelEnv["OTEL_EXPORTER_OTLP_PROTOCOL"])
+}
+
+// parseOTLPExporter parses an OTLP endpoint + protocol pair. Per the OTLP spec
+// the endpoint is a URL; a bare host[:port] is tolerated. Port defaults to the
+// OTLP convention for the transport (4317 gRPC, 4318 HTTP) when the URL omits
+// it.
+func parseOTLPExporter(endpoint, protocol string) (OTLPExporter, bool) {
+	raw := strings.TrimSpace(endpoint)
+	if raw == "" {
+		return OTLPExporter{}, false
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return OTLPExporter{}, false
+	}
+	exp := OTLPExporter{
+		Host:   u.Hostname(),
+		Secure: u.Scheme == "https",
+		GRPC:   otelUsesGRPC(protocol),
+	}
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err == nil {
+			exp.Port = n
+		}
+	}
+	if exp.Port == 0 {
+		if exp.GRPC {
+			exp.Port = 4317
+		} else {
+			exp.Port = 4318
+		}
+	}
+	return exp, true
+}
+
+// otelUsesGRPC interprets OTEL_EXPORTER_OTLP_PROTOCOL. Unset defaults to gRPC —
+// the OTLP spec default (port 4317) and the only transport Envoy's OTel stats
+// sink supports. The http/* values select OTLP/HTTP.
+func otelUsesGRPC(proto string) bool {
+	switch strings.TrimSpace(strings.ToLower(proto)) {
+	case "http/protobuf", "http/json", "http":
+		return false
+	default:
+		return true
+	}
+}
+
+// TraceSamplingPercent maps the inherited OTEL_TRACES_SAMPLER[/_ARG] onto the
+// HCM `tracing.random_sampling` percentage Envoy actually honors — Envoy's
+// native tracer ignores those env vars, so the controller translates them.
+// always_on/off → 100/0; the *traceidratio samplers (or a bare _ARG) use the
+// ARG ratio (0..1) ×100. Unset → 100 (full), matching Envoy's default and the
+// canonical config; operators dial egress trace volume down via
+// OTEL_TRACES_SAMPLER_ARG.
+func (c *Config) TraceSamplingPercent() float64 {
+	sampler := strings.TrimSpace(strings.ToLower(c.OTelEnv["OTEL_TRACES_SAMPLER"]))
+	arg := strings.TrimSpace(c.OTelEnv["OTEL_TRACES_SAMPLER_ARG"])
+	ratioArg := func() float64 {
+		if v, err := strconv.ParseFloat(arg, 64); err == nil {
+			return clampPercent(v * 100)
+		}
+		return 100
+	}
+	switch sampler {
+	case "always_off", "parentbased_always_off":
+		return 0
+	case "always_on", "parentbased_always_on":
+		return 100
+	case "traceidratio", "parentbased_traceidratio":
+		return ratioArg()
+	case "":
+		if arg != "" { // a bare ARG with no named sampler is a ratio
+			return ratioArg()
+		}
+		return 100
+	default:
+		return 100
+	}
+}
+
+func clampPercent(p float64) float64 {
+	switch {
+	case p < 0:
+		return 0
+	case p > 100:
+		return 100
+	default:
+		return p
+	}
 }
 
 func LoadFromEnv() (*Config, error) {
@@ -133,6 +300,11 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("WARM_POOL: invalid JSON: %w", err)
 		}
 	}
+	// Relayed from the controller's own process: whatever OTEL_* the chart (or
+	// an injector) set — the same env the controller's own SDK reads.
+	cfg.OTelEnv = collectOTelEnv()
+	cfg.GatewayOTLPEndpoint = os.Getenv("PLATFORM_GATEWAY_OTLP_ENDPOINT")
+	cfg.GatewayOTLPProtocol = os.Getenv("PLATFORM_GATEWAY_OTLP_PROTOCOL")
 
 	cfg.HarnessServerURL = os.Getenv("PLATFORM_HARNESS_SERVER_URL")
 	cfg.HarnessServerPort = envOrDefaultInt("PLATFORM_HARNESS_SERVER_PORT", 4001)
