@@ -617,7 +617,8 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    needs: [merge-agents, merge-nous, merge-openevolve, appversion]
+    needs:
+      [merge-images, merge-agents, merge-nous, merge-openevolve, appversion]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
