@@ -181,12 +181,18 @@ const trpcHandler = createHTTPHandler({
   maxBodySize: TRPC_MAX_BODY_SIZE,
 });
 
+// A detached PTY is reaped on harness quietness, not viewer loss, so in-flight
+// work survives switching away. The grace stays short for tab-refresh reattach.
+const PTY_DETACH_GRACE_MS = 30_000;
+const PTY_IDLE_REAP_MS = 5 * 60_000;
+
 interface PtySlot {
   pty: nodePty.IPty | null;
   headless: InstanceType<typeof HeadlessTerminal>;
   serialize: InstanceType<typeof SerializeAddon>;
   client: WsWebSocket | null;
   graceTimer: ReturnType<typeof setTimeout> | null;
+  lastOutputAt: number;
 }
 
 const ptySlots = new Map<string, PtySlot>();
@@ -205,6 +211,20 @@ function killPtySlot(sessionId: string): void {
   ptyLog(sessionId, "killed");
 }
 
+function reapPtySlotIfIdle(sessionId: string): void {
+  const slot = ptySlots.get(sessionId);
+  if (!slot || slot.client || !slot.pty) return;
+  const quietMs = Date.now() - slot.lastOutputAt;
+  if (quietMs >= PTY_IDLE_REAP_MS) {
+    killPtySlot(sessionId);
+    return;
+  }
+  slot.graceTimer = setTimeout(
+    () => reapPtySlotIfIdle(sessionId),
+    PTY_IDLE_REAP_MS - quietMs,
+  );
+}
+
 function attachPty(
   sessionId: string,
   ws: WsWebSocket,
@@ -214,17 +234,20 @@ function attachPty(
   let initialized = false;
   ws.binaryType = "nodebuffer";
 
-  ws.on("error", () => {
-    const slot = ptySlots.get(sessionId);
-    if (slot?.client === ws) slot.client = null;
-  });
-  ws.on("close", () => {
+  // An errored socket may never emit close; both paths must arm the reap timer.
+  const detach = () => {
     const slot = ptySlots.get(sessionId);
     if (!slot || slot.client !== ws) return;
     slot.client = null;
     if (!slot.pty) return;
-    slot.graceTimer = setTimeout(() => killPtySlot(sessionId), 30_000);
-  });
+    if (slot.graceTimer) clearTimeout(slot.graceTimer);
+    slot.graceTimer = setTimeout(
+      () => reapPtySlotIfIdle(sessionId),
+      PTY_DETACH_GRACE_MS,
+    );
+  };
+  ws.on("error", detach);
+  ws.on("close", detach);
 
   ws.on("message", (raw: Buffer) => {
     let frame;
@@ -296,17 +319,20 @@ function attachPty(
         serialize,
         client: ws,
         graceTimer: null,
+        lastOutputAt: Date.now(),
       };
       ptySlots.set(sessionId, slot);
       ptyLog(sessionId, `spawned PTY (${cols}x${rows})`);
 
       pty.onData((data) => {
+        slot.lastOutputAt = Date.now();
         slot.headless.write(data);
         if (slot.client?.readyState === 1)
           slot.client.send(encodeDataFrame(OP_OUTPUT, data));
       });
       pty.onExit(({ exitCode }) => {
         ptyLog(sessionId, `exited ${exitCode}`);
+        if (slot.graceTimer) clearTimeout(slot.graceTimer);
         if (slot.client?.readyState === 1) {
           slot.client.send(encodeExit(exitCode));
           slot.client.close(1000, "pty exited");
