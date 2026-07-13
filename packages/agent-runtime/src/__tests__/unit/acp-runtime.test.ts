@@ -2064,12 +2064,18 @@ function makeFakeStore(now: () => string = () => "2026-03-03T00:00:00Z"): {
           meta,
           createdAt: existing?.createdAt ?? "2026-01-01T00:00:00Z",
           ...(lastActivityAt !== undefined ? { lastActivityAt } : {}),
+          seenAt: existing?.seenAt ?? now(),
         });
       },
       recordActivity: (id) => {
         const existing = sessions.get(id);
         if (!existing) return;
         sessions.set(id, { ...existing, lastActivityAt: now() });
+      },
+      recordSeen: (id) => {
+        const existing = sessions.get(id);
+        if (!existing) return;
+        sessions.set(id, { ...existing, seenAt: now() });
       },
       all: () => Object.fromEntries(sessions),
       tombstone: (id) => {
@@ -2130,6 +2136,7 @@ describe("createAcpRuntime — platform _meta round-trip", () => {
     expect(sessions.get(SID)).toEqual({
       meta: { type: "schedule", scheduleId: "sch-1" },
       createdAt: "2026-01-01T00:00:00Z",
+      seenAt: "2026-03-03T00:00:00Z",
     });
   });
 
@@ -2150,6 +2157,7 @@ describe("createAcpRuntime — platform _meta round-trip", () => {
     expect(sessions.get(SID)).toEqual({
       meta: {},
       createdAt: "2026-01-01T00:00:00Z",
+      seenAt: "2026-03-03T00:00:00Z",
     });
   });
 

@@ -56,6 +56,20 @@ export function removeSessionFromCache(
   );
 }
 
+// Mirror the agent-side seen stamp into the list cache ahead of the next poll.
+// Stamps the row's own activity time, not the browser clock, to rule out skew.
+export function setSessionSeen(agentId: string, sessionId: string): void {
+  queryClient.setQueriesData<SessionView[]>(
+    { queryKey: acpSessionsKeys.agentLists(agentId) },
+    (prev) =>
+      prev?.map((s) =>
+        s.sessionId === sessionId
+          ? { ...s, seenAt: s.updatedAt ?? s.createdAt }
+          : s,
+      ),
+  );
+}
+
 // Seed the open session's live busy state into the list cache so its status dot
 // stays correct the instant it stops being the open row — before the next poll.
 export function setSessionRunning(
