@@ -23,7 +23,6 @@ interface Props {
   onSelect: () => void;
   onWake: () => void;
   onRestart: () => void;
-  onConfigure: () => void;
   onDelete: () => void;
 }
 
@@ -35,7 +34,6 @@ export function AgentRow({
   onSelect,
   onWake,
   onRestart,
-  onConfigure,
   onDelete,
 }: Props) {
   return (
@@ -75,9 +73,6 @@ export function AgentRow({
                   Restart
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onSelect={onConfigure}>
-                Configure
-              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 tone="danger"

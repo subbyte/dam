@@ -39,11 +39,8 @@ export function ListView() {
   const { restart: restartAgent } = useRestartAgent();
   const wakeAgent = useWakeAgent();
 
-  const selectAgent = useStore((s) => s.selectAgent);
   const navigateToCreateSandbox = useStore((s) => s.navigateToCreateSandbox);
-  const navigateToSandboxSettings = useStore(
-    (s) => s.navigateToSandboxSettings,
-  );
+  const navigateToSandboxHome = useStore((s) => s.navigateToSandboxHome);
   const showConfirm = useStore((s) => s.showConfirm);
 
   // Gate on data presence, not query success: a transient poll failure keeps
@@ -116,10 +113,9 @@ export function ListView() {
               deletePending={
                 deleteAgent.isPending && deleteAgent.variables?.id === agent.id
               }
-              onSelect={() => selectAgent(agent.id)}
+              onSelect={() => navigateToSandboxHome(agent.id)}
               onWake={() => wakeAgent.wake(agent.id)}
               onRestart={() => restartAgent(agent.id)}
-              onConfigure={() => navigateToSandboxSettings(agent.id)}
               onDelete={() => void deleteSandbox(agent)}
             />
           ))}
